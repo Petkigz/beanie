@@ -1,0 +1,2 @@
+# beanie
+using arena ai
