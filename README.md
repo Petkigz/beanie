@@ -44,7 +44,7 @@ src/beanie/
   learning.py     demonstration learning, confirmation, correction→strategy revision (T1/T9)
   preferences.py  preference learning & implicit discovery (T4)
   body.py         sandbox + opt-in OS body; four-state authority gate (§5/§7)
-  planning.py     goal→skill→plan→verify→repair + incubation (§4.8, T3)
+  planning.py     goal→skill→plan→verify→repair + incubation (§4.8, T3); target folder inferred from goal wording (§7)
   intention.py    prospective memory (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
   explain.py      explanation service, auditable, on demand (§4.5/T10)
@@ -55,17 +55,22 @@ src/beanie/
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
   measure.py      longitudinal suite runner (§8)
   cli.py          REPL window into the mind
-tests/            50 tests incl. the conformance drift guard + T-test battery
+Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
+suites/           four longitudinal scenarios (skeleton, directives, beliefs, preferences)
+tests/            52 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install pytest -e .   # once
-.venv/bin/python -m pytest                                   # full suite incl. drift guard + T-battery
-.venv/bin/python examples/demo_mind.py                       # end-to-end demo
-.venv/bin/python -m beanie.cli --state-dir .beanie_state     # REPL
-.venv/bin/python -m beanie.measure --suite-dir suites        # longitudinal suite
+make setup test      # recreate .venv if needed, then run all tests
+make demo            # end-to-end demo of the mind
+make suite           # longitudinal suite; archives each run under results/ and prints the delta vs the previous run (Q31)
+make repl            # talk to a mind that persists in .beanie_state/
+# manual equivalents:
+python3 -m venv .venv && .venv/bin/pip install pytest -e .
+.venv/bin/python -m pytest
+.venv/bin/python -m beanie.measure --suite-dir suites --track-dir results
 ```
 
 Each mind lives in a state directory (`episodes.jsonl`, `semantic.jsonl`,

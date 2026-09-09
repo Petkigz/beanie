@@ -399,6 +399,21 @@ system that shuffles code but never improves on the *same* tasks is not learning
 11. **CoT privacy line** — exactly where raw chain-of-thought ends and the §4.5
     summarization layer begins, per owner settings.
 
+### Resolutions recorded by the implementation (2026-09-09)
+
+Provisional answers the build settled; each stays open for revision under evidence.
+
+| Question | Resolution in code |
+|---|---|
+| §9.1 compute budget for background cognition | Deterministic budget scheduler implemented as `Mind.tick()` (reminders, decay sweep, incubation revisits, preference mining, one idle-exploration pass, reflection at `reflect_every`); owner-configurable budget amounts and idle-time policy remain open |
+| §9.2 storage substrate | JSONL envelope-per-kind chosen for current scale (`Memory`, all six stores share `records.Entry`); graph/relational hybrid is the revisit path at human-scale history |
+| §9.3 what "confidence" means per store kind | One 0–1 number with decay + revision history across kinds for now; `Calibrator` keeps labels evidence-derived (T8). Owner-rule vs statistical semantics: authority rules default high-confidence owner provenance |
+| §9.4 consolidation timing | Reflection cursor + identity summaries refresh in `StubReflector.consolidate()`; `ConsolidationAdapter` seam defined with `NoopConsolidationAdapter` default — a fine-tune plugs in without changing the loop |
+| §9.7 calibration mapping | Provisional thresholds in `records.confidence_label` (≥0.80 / ≥0.55); T8 guards gaming by construction — labels derive from evidence state + substrate signal, never from the reply text itself |
+| §9.8 decay constants | Provisional defaults (half-lives per volatility class in `records.DecayProfile`); empirical tuning scheduled for the longitudinal protocol once real workloads accumulate |
+| §9.9 explanation faithfulness | Auditable by construction: explanations cite record ids + trace payloads; T10 tests assert the citations resolve to real records |
+| §9.11 CoT privacy line | Raw chain-of-thought is never persisted or exposed; only curated summary payloads (candidate, concerns, residual) reach the trace and the §4.5 service |
+
 ## 10. Implementation status (2026-09-09)
 
 The mechanisms for Stages 0–4 and the data path of Stage 5 are implemented in `src/beanie/`,

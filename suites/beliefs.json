@@ -1,0 +1,11 @@
+{
+  "id": "beliefs",
+  "description": "T2/T11/T12 beliefs through dialogue: commanded memory, contradiction handling, corrections, stale-truth decay sweep.",
+  "turns": [
+    {"user": "hello", "expect": "received"},
+    {"user": "remember that server_c is in nairobi", "expect": "remembered"},
+    {"user": "remember that server_c is in mombasa", "expect": "contradicts"},
+    {"user": "no, that's wrong", "expect": "wrong"},
+    {"user": "explain your last answer", "expect": "answered"}
+  ]
+}

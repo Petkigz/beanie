@@ -1,0 +1,11 @@
+{
+  "id": "preferences",
+  "description": "T4 preference learning through dialogue: explicit statements, corroboration, when-uncertain phrasing.",
+  "turns": [
+    {"user": "i prefer dark mode over light mode", "expect": "dark mode"},
+    {"user": "i prefer dark mode over light mode", "expect": "dark mode"},
+    {"user": "i like coffee more than tea", "expect": "coffee"},
+    {"user": "when uncertain, ask rather than guess", "expect": "ask"},
+    {"user": "i prefer tea over coffee", "expect": "tea"}
+  ]
+}

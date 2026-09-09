@@ -319,8 +319,16 @@ class Mind:
     def reject_skill(self, skill_id: str, reason: str = "owner rejected the proposed rule") -> None:
         self.learner.reject(skill_id, reason)
 
-    def perform_goal(self, goal: str, base_dir: str = "downloads") -> PlanResult:
-        """Perform a goal in the body using learned skills (T1 end-to-end)."""
+    def perform_goal(self, goal: str, base_dir: str | None = None) -> PlanResult:
+        """Perform a goal in the body using learned skills (T1 end-to-end).
+
+        The target directory is inferred from the goal itself when not given
+        ("organize the library folder" → library) — the mind understands which
+        part of its world the goal is about instead of requiring a parameter
+        (ARCHITECTURE §7: needs first, parameters second).
+        """
+        if base_dir is None:
+            base_dir = self._infer_target_dir(goal)
         plan, questions = self.planner.plan_for_goal(goal, base_dir=base_dir)
         if plan is None:
             # T5: an unknown goal class is a recorded gap, not a silent shrug
@@ -554,6 +562,20 @@ class Mind:
     # ======================================================================
     # Records & helpers
     # ======================================================================
+
+    def _infer_target_dir(self, goal: str) -> str:
+        """Pick which existing folder a goal is about, from its own words."""
+        tokens = set(re.findall(r"[a-z0-9]+", goal.lower()))
+        # token that names an actual directory wins (longest match)
+        if self.body.root.exists():
+            for directory in sorted((p for p in self.body.root.iterdir() if p.is_dir()), key=lambda p: len(p.name), reverse=True):
+                name = directory.name.lower()
+                if name in tokens or any(name.startswith(t) or t.startswith(name) for t in tokens if len(t) >= 4):
+                    return directory.name
+        phrase = re.search(r"\b(?:in|into|inside|for)\s+(?:the\s+)?([A-Za-z0-9_./-]+?)(?:\s+folder)?\b", goal)
+        if phrase:
+            return phrase.group(1).strip("/")
+        return "downloads"
 
     @staticmethod
     def _effort_depth(text: str) -> str:

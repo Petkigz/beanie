@@ -126,6 +126,34 @@ def test_t9_correction_revises_strategy_not_just_the_fact(tmp_path):
     assert any(e.content.get("was_correction") and e.content.get("strategy_revision") for e in mind.episodes.all())
 
 
+def test_goal_target_dir_inferred_from_phrasing(tmp_path):
+    """§7 needs-first: 'organize the library folder' acts on library, unstated."""
+    mind = Mind(state_dir=tmp_path / "mind", authority="allow")
+    _seed(mind.body, {"downloads/seed.pdf": "s"})
+    mind.body.run("mkdir", {"dir": "docs"})
+    mind.body.run("mkdir", {"dir": "images"})
+    proposal = mind.demonstrate(
+        title="sort by kind",
+        goal_class="organize files",
+        actions=[DemoAction("move_file", {"src": "downloads/seed.pdf", "dst": "docs"})],
+    )
+    mind.confirm_skill(proposal.skill_id)
+
+    # a fresh folder the mind has never seen named in the goal
+    _seed(mind.body, {"library/report.pdf": "r", "library/pic.jpg": "j"})
+    result = mind.perform_goal("organize the library folder")  # no base_dir passed
+    assert result.outcome == "success", result
+    tree = mind.body.run("snapshot")["tree"]
+    assert "docs/report.pdf" in tree
+    assert "library/pic.jpg" in tree  # unmapped extension untouched
+
+    # explicit folder phrase also respected
+    _seed(mind.body, {"archive/notes.pdf": "n"})
+    result2 = mind.perform_goal("organize files in the archive", base_dir=None)
+    assert result2.outcome == "success"
+    assert "docs/notes.pdf" in mind.body.run("snapshot")["tree"]
+
+
 def test_demonstration_proposal_can_be_rejected(tmp_path):
     mind = Mind(state_dir=tmp_path / "mind", authority="allow")
     proposal = mind.demonstrate(

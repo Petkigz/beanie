@@ -14,6 +14,7 @@ suite grows with the mind instead of drifting from it).
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import sys
 import tempfile
@@ -103,8 +104,13 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
     return result
 
 
-def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None) -> int:
-    """Run every scenario file in `suite_dir`; returns number of failed scenarios."""
+def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, track_dir: Path | None = None) -> int:
+    """Run every scenario file in `suite_dir`; returns number of failed scenarios.
+
+    With `track_dir`, the run's results are archived under a timestamped file
+    and the *delta* against the previous run is printed — the tracked number
+    of the measurement protocol (Q31 / ARCHITECTURE §8).
+    """
     paths = sorted(p for p in suite_dir.glob("*.json") if p.is_file())
     if not paths:
         print(f"No scenario files (*.json) found in {suite_dir}")
@@ -123,8 +129,26 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None) ->
         for failure in result.failures:
             print(f"      expected '{failure['expected']}' in reply, got: {failure['actual']!r} [{failure['label']}]")
     print(f"\nSuite summary: {len(results) - failed}/{len(results)} scenarios passed.")
+    payload = [r.to_dict() for r in results]
     if out_path is not None:
-        out_path.write_text(json.dumps([r.to_dict() for r in results], indent=2), encoding="utf-8")
+        out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if track_dir is not None:
+        track_dir.mkdir(parents=True, exist_ok=True)
+        run_id = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        (track_dir / f"{run_id}.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        previous = sorted(track_dir.glob("*.json"))
+        if len(previous) >= 2:  # newest is this run
+            with previous[-2].open(encoding="utf-8") as fh:
+                last = {row["scenario_id"]: row for row in json.load(fh)}
+            print("\nDelta vs previous run:")
+            for row in payload:
+                prev = last.get(row["scenario_id"])
+                if prev is None:
+                    print(f"  {row['scenario_id']}: new scenario")
+                    continue
+                shift = row["passed_turns"] - prev["passed_turns"]
+                arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "—")
+                print(f"  {row['scenario_id']}: {prev['passed_turns']} → {row['passed_turns']} passed turns {arrow}")
     return 1 if failed else 0
 
 
@@ -133,10 +157,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--suite-dir", default="suites", help="directory of scenario *.json files")
     parser.add_argument("--state-dir", default=None, help="state directory (default: fresh temp dir)")
     parser.add_argument("--out", default=None, help="optional path for a JSON results file")
+    parser.add_argument("--track-dir", default=None, help="archive runs here and print the delta vs the previous run (Q31)")
     args = parser.parse_args(argv)
     suite_dir = Path(args.suite_dir)
     state_dir = Path(args.state_dir) if args.state_dir else Path(tempfile.mkdtemp(prefix="beanie-suite-"))
-    return run_suite(suite_dir, state_dir, Path(args.out) if args.out else None)
+    return run_suite(
+        suite_dir,
+        state_dir,
+        Path(args.out) if args.out else None,
+        Path(args.track_dir) if args.track_dir else None,
+    )
 
 
 if __name__ == "__main__":
