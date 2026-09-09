@@ -31,11 +31,10 @@ from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
 from .explain import ExplanationService
 
-#: reflex tier budget: at most this many words per trivial utterance (§4.6)
-_REFLEX_MAX_WORDS = 6
 from .intention import IntentionKeeper, parse as parse_intention
 from .learning import DemonstrationLearner, DemoAction, SkillProposal
 from .planning import Incubator, PlanExecutor, PlanResult, Planner
+from .policy import EffortPolicy
 from .preferences import PreferenceMiner
 from .records import Entry, EvidenceRef, RecordKind, Source, confidence_label, utcnow_iso
 from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflector, StubReflector
@@ -48,6 +47,14 @@ from .trace import FailureTaxonomy, Trace
 #: owner statements that start a preference (VISION T4)
 _PREF_RE = re.compile(
     r"^\s*(?:i\s+prefer\b|i\s+like\b|when\s+(?:i'?m\s+|i\s+am\s+|i\s+)?(?:uncertain|unsure|in\s+doubt|not\s+sure)\b)",
+    re.IGNORECASE,
+)
+#: introspection — the self-model answers about itself (row 35)
+_INTROSPECT_RE = re.compile(
+    r"^\s*(?:what\s+are\s+you\s+(?:unsure|uncertain|confused|wondering)\s+about\s*\??|"
+    r"what\s+(?:have|did)\s+you\s+learn(?:ed)?\s*(?:recently|so\s+far|today)?\s*\??|"
+    r"what\s+can\s+you\s+do\s*\??|"
+    r"(?:tell\s+me\s+about\s+yourself|what\s+do\s+you\s+know\s+about\s+yourself)\s*\??)\s*$",
     re.IGNORECASE,
 )
 #: owner belief statements → owner-model belief layer (§3.5, row 33)
@@ -146,6 +153,7 @@ class Mind:
         self.executor = PlanExecutor(self.body, self.gate, self.learner, self.memory)
         self.simulator = Simulator(self.body)
         self.attention = NoveltyDetector(self.state_dir / "sandbox")
+        self.policy = EffortPolicy(self.memory)
         self.last_observed_reminders: list[str] = []
 
         self.reflect_every = reflect_every
@@ -212,26 +220,146 @@ class Mind:
             if handled is not None:
                 return handled
 
-        # 7) belief statements ("i think that X is Y") → owner belief layer (§3.5)
+        # 7) introspection — the self-model answers about itself (row 35)
+        if _INTROSPECT_RE.match(text):
+            return self._introspect(turn_id, text)
+
+        # 8) belief statements ("i think that X is Y") → owner belief layer (§3.5)
         if _BELIEF_RE.match(text):
             return self._note_belief(turn_id, text)
 
-        # 8) commanded memory ("remember that …") → semantic store via §3.6
+        # 9) commanded memory ("remember that …") → semantic store via §3.6
         remember = _REMEMBER_RE.match(text)
         if remember:
             return self._remember(turn_id, remember.group(1).strip())
 
-        # 9) explanation on demand (§4.5 / T10)
+        # 10) explanation on demand (§4.5 / T10)
         if _EXPLAIN_RE.match(text):
             return self._explain_last(turn_id, text)
 
-        # 10) corrections — the continuous "no, that's wrong" channel (§4.4)
+        # 11) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
         if correction:
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
-        # 11) default cognition path (§4.1)
+        # 12) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
+
+    def _introspect(self, turn_id: str, text: str) -> Reply:
+        """The self-model speaks: gaps, lessons, capabilities, identity.
+
+        Every branch is answered from the stores — open questions (T5),
+        distilled lessons (§4.3), body capabilities + active skills (§7), and
+        the consolidated identity summary (T7 data path) — so introspection
+        is a read over real state, never canned text (row 35).
+        """
+        lowered = text.lower()
+        if "unsure" in lowered or "uncertain" in lowered or "confused" in lowered or "wondering" in lowered:
+            open_questions = self.memory.query(kind="self", type="question", status="open")
+            if not open_questions:
+                reply_text = "I don't have unresolved questions right now — nothing I'm actively unsure about is on record."
+            else:
+                items = "\n".join(f"  - {q.content.get('text', q.content.get('subject', ''))}" for q in open_questions[:6])
+                reply_text = f"Open questions I'm holding:\n{items}"
+        elif "learn" in lowered:
+            lessons = self.memory.query(kind="self", type="lesson")
+            if not lessons:
+                reply_text = "I haven't distilled any durable lessons yet."
+            else:
+                items = "\n".join(f"  - {l.content.get('text', '')}" for l in lessons[-6:])
+                reply_text = f"What I've learned so far:\n{items}"
+        elif "can you do" in lowered or "do you know" in lowered:
+            capabilities = ", ".join(sorted(self.body.capabilities)) or "none"
+            skill_lines = "\n".join(
+                f"  - {s.content.get('goal_class', s.content.get('title', ''))} "
+                f"(learned via {s.content.get('learned_via', '?')})"
+                for s in self.learner.active_skills()
+            )
+            reply_text = f"Things I can do in my environment: {capabilities}."
+            if skill_lines:
+                reply_text += f"\nSkills I've learned:\n{skill_lines}"
+        else:  # about yourself / identity
+            summary = self.reflector.consolidate()
+            outcomes = [e for e in self.trace.events if e.kind == "outcome"][-20:]
+            calibration_line = ""
+            if outcomes:
+                accurate = sum(1 for e in outcomes if e.payload.get("success"))
+                calibration_line = (
+                    f" Recently my answers were right {accurate} of the last {len(outcomes)} "
+                    f"times I answered — calibration like that is on record, not promised."
+                )
+            reply_text = (
+                f"I am Beanie — a continuous mind, not an agent. So far I have lived "
+                f"{summary['episodes_lived']} episodes, learned {summary['lessons_learned']} lesson(s), "
+                f"received {summary['corrections_received']} correction(s), and hold "
+                f"{len(self.learner.active_skills())} active skill(s)."
+                f"{calibration_line} "
+                f"My identity is written by this history, not by a script."
+            )
+        episode = self._record_episode(
+            turn_id, reply_text, 0.95, True, None,
+            extra={"user_text": text, "directive": "introspection", "reply": reply_text},
+        )
+        return Reply(text=reply_text, confidence=0.95, confidence_label=confidence_label(0.95),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def export_knowledge(self) -> dict:
+        """Serialize the mind's learnable knowledge for another instance (Q15).
+
+        Active skills, stored facts, and active preferences travel as plain
+        content bundles; episodes and raw history stay behind (each mind keeps
+        its own identity — what transfers is *know-how*, not memories).
+        """
+        return {
+            "format": 1,
+            "skills": [dict(s.content) for s in self.learner.active_skills()],
+            "facts": [
+                dict(e.content)
+                for e in self.memory.query(kind="semantic", type="fact")
+                if e.content.get("predicate") != "located_at"
+            ],
+            "preferences": [
+                dict(e.content)
+                for e in self.memory.query(kind="owner_model", type="preference", status="active")
+            ],
+        }
+
+    def import_knowledge(self, bundle: dict) -> dict:
+        """Learn from another mind's exported know-how (Q15 cooperation)."""
+        counts = {"skills": 0, "facts": 0, "preferences": 0}
+        for skill_content in bundle.get("skills", []):
+            entry = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.PROCEDURAL,
+                content={**skill_content, "status": "active", "learned_via": "transfer"},
+                source=Source.INFERENCE,
+                confidence=0.75,
+            )
+            self.memory.skills.append(entry)
+            counts["skills"] += 1
+        for fact_content in bundle.get("facts", []):
+            entry = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.SEMANTIC,
+                content=dict(fact_content),
+                source=Source.INFERENCE,
+                confidence=0.75,
+            )
+            self.engine.ingest(self.memory, entry)
+            self.memory.semantic.append(entry)
+            counts["facts"] += 1
+        for pref_content in bundle.get("preferences", []):
+            entry = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.OWNER_MODEL,
+                content={**pref_content, "status": "active", "origin": "transfer"},
+                source=Source.INFERENCE,
+                confidence=0.7,
+            )
+            self.memory.owner_model.append(entry)
+            counts["preferences"] += 1
+        self.trace.append("transfer", "learning", {"imported": counts})
+        return counts
 
     def _where_is(self, turn_id: str, text: str, target: str) -> Optional[Reply]:
         """Answer from the world model; verify when the record is doubtful.
@@ -418,7 +546,14 @@ class Mind:
         notes: dict[str, Any] = {
             "reminders": [], "stale": [], "incubation_revisits": [],
             "reflection": [], "preferences": [], "curiosity": [], "gists": [],
+            "policy": "",
         }
+
+        # usefulness → effort policy (T13): audit reflex-class outcomes
+        policy_change = self.policy.adapt(self.trace.events)
+        if policy_change:
+            notes["policy"] = policy_change
+            self.trace.append("bg", "policy", {"change": policy_change})
 
         # episodic compression (Domain B / R1.3): routine detail folds away
         gist_id = self.reflector.gist()
@@ -731,10 +866,12 @@ class Mind:
         self.trace.append(turn_id, "perception", {"user_text": text[:200]})
 
         # effort allocation (§4.6): choose a processing depth first
-        depth = self._effort_depth(text)
+        planned_depth = self._effort_depth(text)
+        depth = planned_depth
         observation = {"user_text": text, "turn_id": turn_id}
         outcome: Optional[Outcome] = None
         candidate = ""
+        escalated_from: Optional[str] = None
 
         if depth == "reflex":
             # trivial, low-stakes input → the fast tier answers alone; the
@@ -742,6 +879,7 @@ class Mind:
             candidate = self.substrate.fast(observation, context)
             if candidate.startswith("fast: low-confidence"):
                 depth = "deep"  # fast tier flagged; escalate (§2 contract)
+                escalated_from = "reflex"  # recorded for the effort-policy audit (T13)
         if depth != "reflex":
             # dual-process: System-1 candidate, System-2 verdict (§2)
             candidate = self.substrate.fast(observation, context)
@@ -780,14 +918,26 @@ class Mind:
             residual = ""
         label = confidence_label(confidence)
 
+        # low-confidence "panic button" (Q13): a successful answer that the
+        # evidence state does not back gets an honest caveat + a recorded gap
+        reply_text = outcome.text
+        failure_free = outcome.failure in (None, FailureTaxonomy.NONE)
+        if outcome.success and failure_free and confidence < 0.55:
+            reply_text = (
+                f"{outcome.text} (I'm not fully confident about this — my records on "
+                f"related subjects are uncertain or recently corrected. I can dig deeper if you want.)"
+            )
+            self.curiosity.open_question(text[:60], f"low confidence left unresolved: {text[:160]}")
+
         self.trace.append(
             turn_id, "decision",
-            {"candidate": candidate, "reply": outcome.text[:200], "label": label, "depth": depth,
+            {"candidate": candidate, "reply": reply_text[:200], "label": label, "depth": depth,
+             "escalated_from": escalated_from,
              "concerns": concerns, "residual": residual, "calibration": reasons},
         )
 
-        episode = self._record_episode(turn_id, outcome.text, confidence, outcome.success, outcome.failure,
-                                       extra={"user_text": text, "candidate": candidate, "reply": outcome.text,
+        episode = self._record_episode(turn_id, reply_text, confidence, outcome.success, outcome.failure,
+                                       extra={"user_text": text, "candidate": candidate, "reply": reply_text,
                                               "label": label, "success": outcome.success})
         self.trace.append(
             turn_id, "outcome",
@@ -804,7 +954,7 @@ class Mind:
         self._last_turn_record = episode.id
         self.state.save(self.state_dir / "mind_state.json")
         return Reply(
-            text=outcome.text,
+            text=reply_text,
             confidence=confidence,
             confidence_label=label,
             turn_id=turn_id,
@@ -850,18 +1000,21 @@ class Mind:
             return phrase.group(1).strip("/")
         return "downloads"
 
-    @staticmethod
-    def _effort_depth(text: str) -> str:
+    def _effort_depth(self, text: str) -> str:
         """Choose a processing depth by perceived stakes and size (§4.6).
 
         reflex          → trivial/low-stakes, fast tier only
         deep            → full dual-process turn
         deep_verified   → high stakes: deep tier + pre-flight check (§4.7)
+
+        The reflex word budget comes from the adaptive effort policy, so
+        usefulness feedback (T13) can widen or tighten what counts as
+        "trivial" over time.
         """
         stakes = stakes_of(text)
-        if stakes == 0 and len(text.split()) <= _REFLEX_MAX_WORDS:
+        if stakes == 0 and len(text.split()) <= self.policy.word_limit:
             return "reflex"
-        return "deep_verified" if stakes >= 2 else "deep"
+        return "deep_verified" if stakes >= self.policy.verify_stakes else "deep"
 
     def _record_episode(
         self,

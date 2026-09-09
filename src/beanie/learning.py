@@ -85,12 +85,42 @@ class DemonstrationLearner:
                 extension = Path(src).suffix.lower().lstrip(".")
                 if extension and dst:
                     content["mapping"][extension] = dst
-        now_entry = self._store(content, confidence=0.5)
+        # meta-learning (row 24): a family with prior active skills makes the
+        # next proposal in that family arrive more confidently — learning
+        # gets faster for task kinds it has seen before
+        family = goal_class.lower()
+        prior_in_family = [
+            s for s in self.active_skills() if str(s.content.get("goal_class", "")).lower() == family
+        ]
+        proposed_confidence = 0.5
+        meta_note = ""
+        if prior_in_family:
+            proposed_confidence = 0.6
+            meta_note = f" (I've learned {len(prior_in_family)} similar task(s) before — this family is familiar.)"
+            self._record_meta_lesson(family, len(prior_in_family))
+        now_entry = self._store(content, confidence=proposed_confidence)
         mapping_text = ", ".join(f".{ext} → {dst}" for ext, dst in sorted(content["mapping"].items())) or "no file moves observed"
         return SkillProposal(
             entry=now_entry,
-            confirm_question=f"Rule I learned: {mapping_text}. Is that the rule you want me to remember?",
+            confirm_question=f"Rule I learned: {mapping_text}. Is that the rule you want me to remember?{meta_note}",
         )
+
+    def _record_meta_lesson(self, family: str, prior_count: int) -> None:
+        """Persist the meta-lesson once per family: learning this kind of task
+        is faster now than the first time (row 24 — learning how it learns)."""
+        for lesson in self.memory.query(kind="self", type="lesson"):
+            if f"meta: {family}" in str(lesson.content.get("text", "")):
+                return
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.SELF,
+            content={"type": "lesson",
+                     "text": f"meta: {family} tasks learn faster now — {prior_count} prior skill(s) in this family",
+                     "kind": "meta"},
+            source=Source.SELF_REFLECTION,
+            confidence=0.8,
+        )
+        self.memory.self_model.append(entry)
 
     def confirm(self, skill_id: str) -> Entry:
         """Owner said yes: activate the skill (source becomes OWNER-ratified)."""

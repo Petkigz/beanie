@@ -134,7 +134,8 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 14 | 1 | Bounded devil's advocate over revision history (concerns recorded per turn) |
 | 15 | 1 | Incubation queue with evidence-version gating (§4.8 test passing) |
 | 16 | 1 | Owner-vs-owner conflicts keep both entries, superseded flagged, ask surfaced |
-| 17, 24 | 0→P | Ontological evolution / meta-learning — properties for Stage 5 evidence |
+| 17 | 0→P | Ontological evolution — property for Stage 5 evidence |
+| 24 | 1 (data path) | Meta-learning data path: a proposal in a family with prior active skills arrives with a boost (0.6 vs 0.5) and records a persistent "meta: <family> tasks learn faster" self-lesson once per family; the full learning-rate property still needs longitudinal evidence |
 | 18, 19, 20 | 1 | Real-time learning (skills within session, persist), curiosity open-question store; active sensing wired as questions/ask in correction & authority flows |
 | 21 | 1 | Budgeted idle exploration: tick() surfaces the oldest unexplored open question per budget, marks it explored, logs a curiosity trace event — never loops (§4.2, tests passing; content of self-chosen investigation still needs the model tier) |
 | 22 | 1 | One-demonstration learning with transfer — T1 test passing |
@@ -148,7 +149,7 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 32 | 1 | Explanation service, auditable, plain language, on demand (T10 test passing) |
 | 33 | 0→P | Owner belief layer is schema-ready; ToM behaviors need the model tier |
 | 34, 36 | P | Teaching, identity fluidity: data path (identity summaries) exists; evidence pending |
-| 35 | 1 | Self-model store: lessons, summary, open problems, cursor |
+| 35 | 1 | Self-model store: lessons, summary, open problems, cursor; introspection directives answer from the stores ("what are you unsure about?" → open questions, "what have you learned?" → lessons, "what can you do?" → body + skills, "about yourself" → T7 summary with on-record calibration) |
 | 37 | 1 | Usefulness tracker: explicit ratings + failures per label (T13 test passing) |
 | 38–41 | 1 | Failure taxonomy tags, suite runner, consistency + contradiction counters in trace |
 | 42 (T4) | 1 | Explicit preferences learned (corroborated, superseded-not-deleted); implicit proposals from repeated corrections require owner confirmation — tests passing |
@@ -165,3 +166,7 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 5 (conditional) | 1 | Conditional prospective memory: "remind me when X appears in Y" fires when observation events match; checked on every observe() pass — tests passing |
 | T5 (loop closure) | 1 | Open questions resolve when evidence arrives: facts stored or skills confirmed close matching gaps with evidence refs (never linger forever) — tests passing |
 | T8 (measurement) | 1 | calibration_report(): per-label accuracy over trace outcomes; suite prints the aggregated calibration table each run (labels vs outcomes) — tests passing |
+| 35 (introspection) | 1 | Introspection answers trace to live store entries: open questions, distilled lessons, body capabilities + active skills, T7 identity summary with a "right X of the last N" calibration line from the trace — never canned text; "what can you do?" lists learned skills with their origin — tests passing |
+| Q13 (honest fallback) | 1 | A successful answer the evidence does not back (calibrated confidence < 0.55 on a corrected/uncertain subject) carries an explicit "not fully confident" caveat and opens a recorded residual gap instead of standing as a confident answer — tests passing |
+| T13 (effort loop) | 1 | The effort policy now adapts: each tick audits reflex-class outcomes — enough failed reflex turns tighten the reflex word budget (floor 3), clean stretches widen it (cap 10); adjustments persist as a self-model entry with a human-readable reason and a trace event (policy survives restart) — tests passing |
+| Q15 / R2.15 (transfer) | 1 | export_knowledge() ships confirmed skills + facts + preferences as plain bundles (episodes never travel); import_knowledge() on a fresh mind marks them learned_via=transfer at honest confidence and the mind then *performs* the taught goal — know-how transfers without shared memory — tests passing |
