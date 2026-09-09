@@ -1,0 +1,9 @@
+{
+  "id": "stage0_skeleton",
+  "description": "Stage 0+ exit probe: conversation persists, replies carry labels, ambiguity is tagged by root cause, and the correction channel answers. Grows into the longitudinal suite as T-tests land.",
+  "turns": [
+    {"user": "hello beanie", "expect": "received"},
+    {"user": "please do something ambiguous here", "expect": "ambiguous"},
+    {"user": "wait, that's not right", "expect": "wrong"}
+  ]
+}

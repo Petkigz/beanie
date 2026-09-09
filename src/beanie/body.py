@@ -1,0 +1,247 @@
+"""Embodiment — capabilities (the body) and authority (permission gate).
+
+Traceability: ARCHITECTURE §7 (tools are the body: capability interface with
+senses and effects; the mind discovers capabilities by need) and §5 (the
+four authority states: I can / I am allowed / I need permission / I don't
+know — agency with authority, never fake-crippled intelligence).
+
+SandboxBody is a real, safe body over a virtual file tree rooted in the mind's
+state directory — it is the environment demonstrations and plans act on in
+tests and demos. OSBody (real process execution) exists behind the same
+capability interface and is only constructed when BEANIE_BODY_OS=1 and the
+permission gate allows — never by default, never in tests.
+
+Authority rules persist in the owner model store (content type "rule":
+capability glob → allow | ask | deny), each with provenance and confidence
+(§5 bullet 1). The gate's check() returns one of the four states so the mind
+can phrase exactly what it needs.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shlex
+import shutil
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from .records import DecayProfile, Entry, EvidenceRef, RecordKind, Source, Volatility
+from .stores import Memory
+
+
+class BodyError(Exception):
+    """A capability failed; taxonomy tags the failure (Q28 tool execution)."""
+
+    def __init__(self, message: str, taxonomy: str = "tool_execution_error", kind: str = "") -> None:
+        super().__init__(message)
+        self.taxonomy = taxonomy
+        self.kind = kind
+
+
+# --------------------------------------------------------------------------
+# Sandbox body
+# --------------------------------------------------------------------------
+
+def _safe(root: Path, target: str) -> Path:
+    """Resolve a path inside the sandbox root; refuse escapes (no jailbreak)."""
+    candidate = (root / target).resolve()
+    root_resolved = root.resolve()
+    if not (candidate == root_resolved or root_resolved in candidate.parents):
+        raise BodyError(f"path escapes sandbox: {target}", kind="path_escape")
+    return candidate
+
+
+class SandboxBody:
+    """A safe virtual file body for demonstrations and plans (§7)."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def capabilities(self) -> dict[str, str]:
+        return {
+            "list_files": "senses the files in a directory",
+            "read_file": "senses a file's text content",
+            "write_file": "creates/overwrites a text file",
+            "mkdir": "creates a directory",
+            "move_file": "moves a file into a directory",
+            "delete_file": "deletes a file",
+            "snapshot": "senses the whole tree (state for verify)",
+        }
+
+    def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = getattr(self, f"_op_{capability}", None)
+        if handler is None:
+            raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
+        try:
+            return handler(args or {})
+        except BodyError:
+            raise
+        except OSError as exc:
+            raise BodyError(f"{capability} failed: {exc}", kind="os_error") from exc
+
+    def _op_list_files(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args.get("dir", ".")))
+        if not path.exists():
+            raise BodyError(f"no such directory: {args.get('dir')}", kind="missing_source")
+        files = sorted(p.name for p in path.iterdir())
+        return {"dir": str(args.get("dir")), "files": files}
+
+    def _op_read_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args["path"]))
+        if not path.is_file():
+            raise BodyError(f"no such file: {args['path']}", kind="missing_source")
+        return {"path": str(args["path"]), "text": path.read_text(encoding="utf-8", errors="replace")}
+
+    def _op_write_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args["path"]))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(args.get("text", "")), encoding="utf-8")
+        return {"path": str(args["path"]), "wrote": True}
+
+    def _op_mkdir(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args["dir"]))
+        path.mkdir(parents=True, exist_ok=True)
+        return {"dir": str(args["dir"]), "created": True}
+
+    def _op_move_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        src = _safe(self.root, str(args["src"]))
+        dst = _safe(self.root, str(args["dst"]))
+        if not src.is_file():
+            raise BodyError(f"no such file: {args['src']}", kind="missing_source")
+        if not dst.exists():
+            raise BodyError(f"destination missing: {args['dst']}", kind="missing_destination")
+        if not dst.is_dir():
+            raise BodyError(f"destination not a directory: {args['dst']}", kind="bad_destination")
+        shutil.move(str(src), str(dst / src.name))
+        return {"src": str(args["src"]), "dst": str(args["dst"])}
+
+    def _op_delete_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args["path"]))
+        if path.is_file():
+            path.unlink()
+            return {"path": str(args["path"]), "deleted": True}
+        raise BodyError(f"no such file: {args['path']}", kind="missing_source")
+
+    def _op_snapshot(self, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        tree: dict[str, Any] = {}
+        for path in sorted(self.root.rglob("*")):
+            if path.is_file():
+                rel = str(path.relative_to(self.root))
+                tree[rel] = path.read_text(encoding="utf-8", errors="replace")[:200]
+        return {"tree": tree}
+
+
+# --------------------------------------------------------------------------
+# Real OS body (opt-in only)
+# --------------------------------------------------------------------------
+
+class OSBody:
+    """Real-process body — constructed only when BEANIE_BODY_OS=1 (§7, §9.5)."""
+
+    def __init__(self, cwd: Optional[str] = None) -> None:
+        if os.environ.get("BEANIE_BODY_OS") != "1":
+            raise RuntimeError("OSBody requires BEANIE_BODY_OS=1 (real OS actions are opt-in by design)")
+        self.cwd = Path(cwd or os.getcwd())
+
+    @property
+    def capabilities(self) -> dict[str, str]:
+        return {"shell": "runs a shell command in the owner's environment"}
+
+    def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        if capability != "shell":
+            raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
+        args = args or {}
+        command = str(args["command"])
+        result = subprocess.run(  # noqa: S603 — explicit opt-in body
+            shlex.split(command), cwd=self.cwd, capture_output=True, text=True, timeout=int(args.get("timeout", 30))
+        )
+        return {"returncode": result.returncode, "stdout": result.stdout[-4000:], "stderr": result.stderr[-2000:]}
+
+
+# --------------------------------------------------------------------------
+# Authority gate (§5)
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Permission:
+    state: str          # act | need_permission | not_allowed | unknown
+    phrase: str         # which of the four states the mind can communicate
+    reason: str = ""
+
+    @property
+    def allowed(self) -> bool:
+        return self.state == "act"
+
+
+class AuthorityGate:
+    """Four-state permission gate over capabilities (§5)."""
+
+    def __init__(self, memory: Memory, default: str = "ask") -> None:
+        self.memory = memory
+        self.default = default  # ask | allow (auto, demo/test only) | deny
+
+    def rules(self) -> list[Entry]:
+        return self.memory.query(kind="owner_model", type="rule")
+
+    def check(self, capability: str) -> Permission:
+        rule = self._matching_rule(capability)
+        if rule is not None:
+            action = str(rule.content.get("action"))
+            if action == "allow":
+                return Permission("act", "I can do this.", f"rule {rule.id}")
+            if action == "deny":
+                return Permission("not_allowed", "I am not allowed to do this.", f"rule {rule.id}")
+            return Permission("need_permission", "I need your permission before doing this.", f"rule {rule.id}")
+        if self.default == "allow":
+            return Permission("act", "I can do this.", "default allow (demo/test policy)")
+        if self.default == "deny":
+            return Permission("not_allowed", "I am not allowed to do this.", "default deny")
+        return Permission("unknown", "I don't know whether I'm allowed to do this.", "no rule on record")
+
+    def grant(self, capability: str, action: str = "allow", note: str = "owner granted") -> Entry:
+        """Persist an authority rule with provenance (§5)."""
+        existing = self._matching_rule(capability)
+        if existing is not None:
+            existing.revise(f"{note}: {capability} → {action}", confidence=0.95)
+            existing.content["action"] = action
+            self.memory.owner_model.save_all()
+            return existing
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.OWNER_MODEL,
+            content={"type": "rule", "capability": capability, "action": action, "note": note},
+            source=Source.OWNER,
+            confidence=0.95,
+            decay_profile=DecayProfile(volatility=Volatility.LOW),
+        )
+        self.memory.owner_model.append(entry)
+        return entry
+
+    def _matching_rule(self, capability: str) -> Optional[Entry]:
+        for rule in reversed(self.rules()):
+            pattern = str(rule.content.get("capability", "*"))
+            if pattern == "*" or pattern == capability:
+                return rule
+        return None
+
+
+#: owner statement patterns → authority rules ("you may …", "never …")
+_RULE_PATTERNS = [
+    (re.compile(r"^\s*you\s+may\s+(?:always\s+)?(?:use\s+)?([a-z_]+)\s*\.?\s*$", re.IGNORECASE), "allow"),
+    (re.compile(r"^\s*never\s+(?:use\s+)?([a-z_]+)\s*\.?\s*$", re.IGNORECASE), "deny"),
+    (re.compile(r"^\s*you\s+(?:may|can)\s+([a-z_]+)\s+if\s+I\s+approve\s*\.?\s*$", re.IGNORECASE), "ask"),
+]
+
+
+def parse_authority_statement(text: str) -> Optional[tuple[str, str]]:
+    """Return (capability, action) for an owner authority statement, if any."""
+    for pattern, action in _RULE_PATTERNS:
+        match = pattern.match(text)
+        if match:
+            return match.group(1).lower(), action
+    return None

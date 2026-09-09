@@ -1,0 +1,599 @@
+"""The cognitive loop — the integrated mind (ARCHITECTURE §4).
+
+Traceability: ARCHITECTURE §4.1 (trigger → perceive → understand → reason →
+decide → act → experience → reflect → mind changed), §4.2 (triggers; no idle
+loop), §4.4 (correction handler), §4.5 (explanation service), §4.6 (effort
+allocation), §5 (authority), §7 (body), and the Stage-0 exit criteria the
+original skeleton proved (persistence, restart continuity, failure tags).
+
+Every module-level behavior has its own module (belief, learning, planning,
+intention, reflection, explain, cognition, attention); this file wires them
+into one loop with one public face — Mind.step() for owner input, Mind.tick()
+for scheduled background cognition, Mind.observe() for perception events, and
+Mind.demonstrate()/Mind.perform_goal() for teach-then-act (T1).
+
+Honesty boundary (VISION §4): plain conversation never silently triggers body
+actions; acting requires either an explicit demonstrated/confirmed skill via
+perform_goal, an allow rule, or a permission answer — the four states of §5.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+from .attention import NoveltyDetector
+from .belief import ContradictionEngine, DecayMonitor
+from .body import AuthorityGate, SandboxBody, parse_authority_statement
+from .calibration import Calibrator
+from .cognition import Curiosity, Devil, stakes_of
+from .explain import ExplanationService
+from .intention import IntentionKeeper, parse as parse_intention
+from .learning import DemonstrationLearner, DemoAction, SkillProposal
+from .planning import Incubator, PlanExecutor, PlanResult, Planner
+from .preferences import PreferenceMiner
+from .records import Entry, EvidenceRef, RecordKind, Source, confidence_label, utcnow_iso
+from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflector, StubReflector
+from .state import MindState
+from .stores import Memory
+from .substrate import Outcome, StubSubstrate, Substrate
+from .trace import FailureTaxonomy, Trace
+
+#: owner statements that start a preference (VISION T4)
+_PREF_RE = re.compile(
+    r"^\s*(?:i\s+prefer\b|i\s+like\b|when\s+(?:i'?m\s+|i\s+am\s+|i\s+)?(?:uncertain|unsure|in\s+doubt|not\s+sure)\b)",
+    re.IGNORECASE,
+)
+#: owner statements that start a correction (ARCHITECTURE §4.4)
+_CORRECTION_RE = re.compile(
+    r"^\s*(?:no|nope|wait|stop|wrong|not that|that'?s not right|that'?s wrong|that is wrong|that is not right)"
+    r"(?:[,\-:]\s*|\s+)(.*)$",
+    re.IGNORECASE,
+)
+#: owner statements that command memory ("remember that X is Y")
+_REMEMBER_RE = re.compile(r"^\s*(?:remember|note|keep in mind)(?:\s+that)?\s*:?\s*(.+)$", re.IGNORECASE)
+_FACT_RE = re.compile(
+    r"^(.+?)\s+(is|are|was|were|has|have|uses|runs? on|prefers|likes|belongs? to|located at|costs?)"
+    r"\s+(?:in|at|on|under|near|with)?\s*(.+?)\s*\.?\s*$",
+    re.IGNORECASE,
+)
+_EXPLAIN_RE = re.compile(r"^\s*(?:explain|why did you|why do you think|walk me through)\b", re.IGNORECASE)
+_CANCEL_REMARK_RE = re.compile(r"^\s*(?:cancel|forget|never mind)\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Reply:
+    """A turn's public response: text + communicated confidence (T8) + extras."""
+
+    text: str
+    confidence: float
+    confidence_label: str
+    turn_id: str
+    success: bool
+    failure: Optional[FailureTaxonomy] = None
+    record_id: Optional[str] = None
+    reminders: tuple[str, ...] = ()
+    questions: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "confidence": self.confidence,
+            "confidence_label": self.confidence_label,
+            "turn_id": self.turn_id,
+            "success": self.success,
+            "failure": self.failure.value if self.failure else None,
+            "record_id": self.record_id,
+            "reminders": list(self.reminders),
+            "questions": list(self.questions),
+        }
+
+
+class Mind:
+    """One continuous mind: loop, stores, behaviors, body, persistence."""
+
+    def __init__(
+        self,
+        substrate: Optional[Substrate] = None,
+        state_dir: str | Path = ".beanie_state",
+        authority: str = "ask",  # ask | allow | deny (allow is demo/test policy)
+        reflect_every: int = 25,
+        consolidation_adapter: Optional[ConsolidationAdapter] = None,
+    ) -> None:
+        if substrate is None:
+            substrate = StubSubstrate()
+        self.substrate = substrate
+        self.state_dir = Path(state_dir)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+        self.state = MindState.from_dir(self.state_dir)
+        self.memory = Memory(self.state_dir)
+        self.trace = Trace(self.state_dir / "trace.jsonl")
+        self.episodes = self.memory.episodes  # Stage-0 compatible handle
+
+        # behaviors & stores are assembled here; every component is swappable
+        self.engine = ContradictionEngine()
+        self.decay = DecayMonitor()
+        self.calibrator = Calibrator(self.memory, self.trace)
+        self.devil = Devil(self.memory)
+        self.curiosity = Curiosity(self.memory)
+        self.learner = DemonstrationLearner(self.memory)
+        self.preferences = PreferenceMiner(self.memory)
+        self.planner = Planner(self.memory, self.learner)
+        self.intentions = IntentionKeeper(self.memory)
+        self.explainer = ExplanationService(self.memory, self.trace)
+        self.incubator = Incubator(self.memory)
+        self.reflector: Reflector = StubReflector(self.memory)
+        self.adapter = consolidation_adapter or NoopConsolidationAdapter()
+
+        self.body = SandboxBody(self.state_dir / "sandbox")
+        self.gate = AuthorityGate(self.memory, default=authority)
+        self.executor = PlanExecutor(self.body, self.gate, self.learner, self.memory)
+        self.attention = NoveltyDetector(self.state_dir / "sandbox")
+
+        self.reflect_every = reflect_every
+        self._last_turn_record: Optional[str] = None
+
+    # ======================================================================
+    # Owner input
+    # ======================================================================
+
+    def step(self, user_text: str) -> Reply:
+        """One cognitive-loop turn for one owner utterance (§4.1)."""
+        turn_id = self._new_turn_id()
+        text = user_text.strip()
+
+        # 1) prospective memory: set or cancel an intention (§3.7)
+        if _CANCEL_REMARK_RE.match(text):
+            cancelled = self.intentions.cancel_matching(text)
+            if cancelled is not None:
+                return self._directive_reply(turn_id, "Reminder cancelled.", success=True)
+        parsed_intention = parse_intention(text)
+        if parsed_intention is not None:
+            entry = self.intentions.add(parsed_intention, origin_turn=turn_id)
+            self.trace.append(turn_id, "intention", {"intention_id": entry.id, "action": parsed_intention.action})
+            return self._directive_reply(
+                turn_id,
+                f"Understood — I'll remind you to {parsed_intention.action}.",
+                success=True,
+                record_id=entry.id,
+            )
+
+        # 2) preference statements → owner model (T4)
+        if _PREF_RE.match(text):
+            return self._learn_preference(turn_id, text)
+
+        # 3) authority statements → durable rules (§5)
+        authority_rule = parse_authority_statement(text)
+        if authority_rule is not None:
+            capability, action = authority_rule
+            rule = self.gate.grant(capability, action)
+            self.trace.append(turn_id, "authority", {"capability": capability, "action": action, "rule_id": rule.id})
+            phrase = {
+                "allow": "I may do that now.",
+                "deny": "I won't do that.",
+                "ask": "I'll ask before doing that.",
+            }[action]
+            return self._directive_reply(turn_id, f"Understood. {phrase} ({capability} → {action})", success=True, record_id=rule.id)
+
+        # 4) commanded memory ("remember that …") → semantic store via §3.6
+        remember = _REMEMBER_RE.match(text)
+        if remember:
+            return self._remember(turn_id, remember.group(1).strip())
+
+        # 5) explanation on demand (§4.5 / T10)
+        if _EXPLAIN_RE.match(text):
+            return self._explain_last(turn_id, text)
+
+        # 6) corrections — the continuous "no, that's wrong" channel (§4.4)
+        correction = _CORRECTION_RE.match(text)
+        if correction:
+            return self._handle_correction(turn_id, text, correction.group(1).strip())
+
+        # 7) default cognition path (§4.1)
+        return self._default_turn(turn_id, text)
+
+    def _learn_preference(self, turn_id: str, text: str) -> Reply:
+        """Learn an explicit preference statement (T4)."""
+        entry = self.preferences.learn(text)
+        if entry is None:
+            # the statement started with a preference word but did not parse:
+            # keep it as raw context rather than guessing a structure (§4 honesty)
+            entry = self.preferences.learn(f"i prefer {text.lower()}")
+        choice = str(entry.content.get("choice", ""))
+        note = ""
+        superseded = str(entry.content.get("superseded_choice", ""))
+        if superseded:
+            note = f" This replaces your earlier preference for {superseded}."
+        for revision in reversed(entry.revision_history):
+            if "confirmed by explicit" in revision.reason:
+                note = f" I had noticed this from your corrections and will apply it."
+                break
+        reply_text = f"Understood — I'll remember that you prefer {choice}.{note}"
+        episode = self._record_episode(
+            turn_id, reply_text, entry.confidence, True, None,
+            extra={"directive": "preference", "user_text": text, "preference_id": entry.id},
+        )
+        self.trace.append(turn_id, "memory", {"preference_id": entry.id, "choice": choice})
+        return Reply(text=reply_text, confidence=entry.confidence, confidence_label=confidence_label(entry.confidence),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def tick(self) -> dict[str, Any]:
+        """Scheduled background cognition — no owner input needed (§4.2).
+
+        Runs the deterministic maintenance loop on a budget: wall-clock
+        reminders, stale-state decay sweep, incubation revisits, and the
+        reflection pass when enough episodes have accumulated.
+        """
+        notes: dict[str, Any] = {"reminders": [], "stale": [], "incubation_revisits": [], "reflection": [], "preferences": []}
+
+        # T4 implicit discovery: repeated corrections may propose a preference
+        for proposal in self.preferences.mine_implicit(self.episodes.all()):
+            notes["preferences"].append(proposal.content.get("context", ""))
+            self.trace.append(
+                "bg", "preference",
+                {"proposed": proposal.id, "context": proposal.content.get("context")},
+            )
+
+        for entry in self.intentions.due_wallclock():
+            notes["reminders"].append(self.intentions.fire(entry))
+            self.trace.append("bg", "intention", {"fired": entry.id, "action": entry.content.get("action")})
+
+        notes["stale"] = [e.id for e in self.decay.sweep(self.memory)]
+        if notes["stale"]:
+            self.trace.append("bg", "decay", {"stale": notes["stale"]})
+
+        for entry in self.incubator.due_for_revisit():
+            self.incubator.revisit(entry, "revisited on background budget (new evidence present)")
+            notes["incubation_revisits"].append(entry.id)
+
+        cursor = self._reflect_cursor()
+        new_episodes = self.episodes.all()[cursor:]
+        if len(new_episodes) >= self.reflect_every:
+            notes["reflection"] = self.reflector.reflect(new_episodes)
+            self._set_reflect_cursor(self.episodes.count())
+            self.trace.append("bg", "reflection", {"notes": notes["reflection"][:3]})
+            # Stage 5: consolidation input — the identity bundle, refreshed
+            self.adapter.consolidate(self.reflector.consolidate())
+        return notes
+
+    def observe(self) -> list[dict[str, Any]]:
+        """Perception over an observed stream: record what changed (§4.2)."""
+        events = self.attention.diff()
+        for event in events:
+            entry = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.EPISODE,
+                content={"type": "observation", "event": event, "user_text": f"observed {event['kind']} {event['path']}"},
+                source=Source.PERCEPTION,
+                confidence=0.6,
+            )
+            self.episodes.append(entry)
+            self.trace.append("perception", "perception", {"event": event})
+        return events
+
+    # ======================================================================
+    # Teaching & acting (T1) — the demonstration interaction model (§6)
+    # ======================================================================
+
+    def demonstrate(self, *, title: str, goal_class: str, actions: list[DemoAction]) -> SkillProposal:
+        """Watch a demonstration and propose the general rule as a question."""
+        proposal = self.learner.learn(title=title, goal_class=goal_class, actions=actions)
+        self.trace.append(
+            "demo",
+            "learning",
+            {"kind": "proposal", "skill_id": proposal.skill_id, "question": proposal.confirm_question},
+        )
+        return proposal
+
+    def confirm_skill(self, skill_id: str) -> Entry:
+        """Owner says yes — the proposed rule is ratified (§6 interaction)."""
+        entry = self.learner.confirm(skill_id)
+        self._log_learning_episode(
+            user_text=f"confirmed skill {entry.content.get('title', skill_id)}",
+            content={"skill_confirmed": True, "rule": entry.content.get("mapping", {}), "skill_id": entry.id},
+        )
+        return entry
+
+    def reject_skill(self, skill_id: str, reason: str = "owner rejected the proposed rule") -> None:
+        self.learner.reject(skill_id, reason)
+
+    def perform_goal(self, goal: str, base_dir: str = "downloads") -> PlanResult:
+        """Perform a goal in the body using learned skills (T1 end-to-end)."""
+        plan, questions = self.planner.plan_for_goal(goal, base_dir=base_dir)
+        if plan is None:
+            # T5: an unknown goal class is a recorded gap, not a silent shrug
+            self.curiosity.open_question(goal[:60], f"no skill found for goal: {goal}")
+            self.trace.append("act", "plan", {"goal": goal, "questions": questions})
+            return PlanResult(skill_id=None, steps=[], outcome="needs_information")
+        result = self.executor.execute(plan)
+        self.trace.append(
+            "act",
+            "outcome",
+            {
+                "goal": goal,
+                "skill_id": result.skill_id,
+                "outcome": result.outcome,
+                "failure": result.failure_taxonomy,
+                "repairs": result.repairs,
+            },
+            failure=FailureTaxonomy(result.failure_taxonomy) if result.failure_taxonomy and result.failure_taxonomy in FailureTaxonomy._value2member_map_ else None,
+        )
+        if result.outcome == "failed" or result.outcome == "needs_information":
+            self._log_learning_episode(
+                user_text=goal,
+                content={"plan_failed": True, "goal": goal, "failure": result.failure_taxonomy, "outcome": result.outcome},
+            )
+        elif result.outcome == "success" and result.repairs == 0:
+            self._log_learning_episode(user_text=goal, content={"plan_succeeded": True, "goal": goal})
+        return result
+
+    # ======================================================================
+    # Feedback & explanation
+    # ======================================================================
+
+    def rate(self, turn_id: str, score: int, note: str = "") -> None:
+        """Explicit usefulness rating for a past turn (T13)."""
+        from .calibration import UsefulnessTracker
+
+        UsefulnessTracker().rate(self.trace, turn_id, score, note)
+
+    def explain(self, *, turn_id: str = "", record_id: str = "") -> Optional[str]:
+        """User-facing explanation on demand (§4.5 / T10)."""
+        explanation = None
+        if record_id:
+            explanation = self.explainer.explain_record(record_id)
+        elif turn_id:
+            explanation = self.explainer.explain_turn(turn_id)
+        elif self._last_turn_record:
+            explanation = self.explainer.explain_record(self._last_turn_record)
+        return explanation.to_text() if explanation is not None else None
+
+    # ======================================================================
+    # Directive handlers
+    # ======================================================================
+
+    def _remember(self, turn_id: str, statement: str) -> Reply:
+        fact = _FACT_RE.match(statement)
+        if fact:
+            subject, predicate, obj = fact.group(1).strip(), fact.group(2).lower(), fact.group(3).strip()
+            content = {"type": "fact", "subject": subject.lower(), "predicate": predicate, "object": obj}
+        else:
+            content = {"type": "fact", "subject": statement.lower()[:80], "predicate": "described_by", "object": statement}
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.SEMANTIC,
+            content=content,
+            source=Source.OWNER,
+            confidence=0.9,
+        )
+        report = self.engine.ingest(self.memory, entry)
+        self.memory.semantic.append(entry)
+        questions: tuple[str, ...] = ()
+        text = "Remembered."
+        if report.note:
+            text = f"Remembered. {report.note}"
+        if report.ask_owner:
+            questions = ("I've updated my record to the newer statement — is that right?",)
+        self.trace.append(turn_id, "memory", {"entry_id": entry.id, "report": report.__dict__})
+        episode = self._record_episode(
+            turn_id, text, entry.confidence, True, None,
+            extra={"directive": "remember", "user_text": statement, "memory_entry_id": entry.id},
+        )
+        return Reply(
+            text=text, confidence=entry.confidence, confidence_label=confidence_label(entry.confidence),
+            turn_id=turn_id, success=True, record_id=episode.id, questions=questions,
+        )
+
+    def _handle_correction(self, turn_id: str, full_text: str, remainder: str) -> Reply:
+        """§4.4: classify, update, revise strategy, log learning episode."""
+        # strategy revision first: mapping corrections adjust the skill (T9)
+        revised = self.learner.apply_correction(remainder or full_text)
+        if revised is not None:
+            skill = self.memory.find(revised)
+            mapping = dict(skill.content.get("mapping", {})) if skill else {}
+            text = "Got it — I've corrected my rule" + (f": {', '.join(f'.{k} → {v}' for k, v in mapping.items())}" if mapping else ".")
+            episode = self._record_episode(
+                turn_id, text, 0.9, True, None,
+                extra={"was_correction": True, "user_text": full_text, "strategy_revision": revised},
+            )
+            self.trace.append(turn_id, "correction", {"kind": "strategy_revision", "skill_id": revised})
+            return Reply(text=text, confidence=0.9, confidence_label=confidence_label(0.9), turn_id=turn_id,
+                         success=True, record_id=episode.id)
+        # generic correction: demote the last claim; if the claim was a
+        # remembered fact, propagate the invalidation (T11 contamination)
+        if self._last_turn_record:
+            last = self.memory.find(self._last_turn_record)
+            if last is not None:
+                last.revise(f"corrected by owner: {remainder or full_text}", confidence=last.confidence * 0.3)
+                fact_id = last.content.get("memory_entry_id")
+                if fact_id:
+                    demoted = self.engine.contamination(
+                        self.memory, fact_id, f"owner said the statement was wrong: {remainder or full_text}"
+                    )
+                    self.trace.append(turn_id, "correction", {"kind": "contamination", "source": fact_id, "demoted": demoted})
+                self.episodes.save_all()
+        text = "Understood — I was wrong. I've noted the correction and will handle this kind of case differently next time."
+        episode = self._record_episode(
+            turn_id, text, 0.9, True, None,
+            extra={"was_correction": True, "user_text": full_text},
+        )
+        self.trace.append(turn_id, "correction", {"kind": "generic"})
+        return Reply(text=text, confidence=0.9, confidence_label=confidence_label(0.9), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _explain_last(self, turn_id: str, text: str) -> Reply:
+        explanation = self.explain()
+        if explanation is None:
+            reply_text = "I have no recent decision to explain yet."
+            episode = self._record_episode(turn_id, reply_text, 0.9, True, None, extra={"user_text": text})
+            return Reply(text=reply_text, confidence=0.9, confidence_label=confidence_label(0.9),
+                         turn_id=turn_id, success=True, record_id=episode.id)
+        episode = self._record_episode(turn_id, explanation, 0.9, True, None, extra={"user_text": text, "explanation_of": self._last_turn_record})
+        return Reply(text=explanation, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def _directive_reply(self, turn_id: str, text: str, *, success: bool, record_id: Optional[str] = None) -> Reply:
+        episode = self._record_episode(turn_id, text, 0.95, success, None, extra={})
+        return Reply(text=text, confidence=0.95, confidence_label="highly confident", turn_id=turn_id,
+                     success=success, record_id=record_id or episode.id)
+
+    # ======================================================================
+    # Default cognition path
+    # ======================================================================
+
+    def _default_turn(self, turn_id: str, text: str) -> Reply:
+        context = self.recall(limit=8)
+        self.trace.append(turn_id, "perception", {"user_text": text[:200]})
+
+        # dual-process: System-1 candidate, System-2 verdict (§2)
+        observation = {"user_text": text, "turn_id": turn_id}
+        candidate = self.substrate.fast(observation, context)
+        outcome = self.substrate.deep(observation, context, candidate)
+
+        # T5: gaps noticed by the loop become open questions (no silent guesses)
+        if outcome.failure in (FailureTaxonomy.MISSING_CONTEXT, FailureTaxonomy.PROMPT_AMBIGUITY):
+            self.curiosity.open_question(text[:60], f"owner request left unresolved: {text[:160]}")
+
+        # effort allocation (§4.6): adversarial pre-flight only when it matters
+        concerns: list[dict] = []
+        if stakes_of(text) and not outcome.failure and outcome.success:
+            concerns = self.devil.check(text, outcome.confidence)
+
+        # calibration (T8): evidence state adjusts the substrate's confidence
+        confidence, reasons = self.calibrator.assess(text, outcome.confidence)
+        if concerns:
+            real_concerns = [c for c in concerns if c.get("kind") != "none"]
+            if real_concerns:
+                confidence = max(0.05, confidence - 0.1 * len(real_concerns))
+            residual = "; ".join(c["detail"] for c in concerns[:2]) or "none"
+            reasons["concerns"] = len(concerns)
+        else:
+            residual = ""
+        label = confidence_label(confidence)
+
+        self.trace.append(
+            turn_id, "decision",
+            {"candidate": candidate, "reply": outcome.text[:200], "label": label,
+             "concerns": concerns, "residual": residual, "calibration": reasons},
+        )
+
+        episode = self._record_episode(turn_id, outcome.text, confidence, outcome.success, outcome.failure,
+                                       extra={"user_text": text, "candidate": candidate, "reply": outcome.text,
+                                              "label": label, "success": outcome.success})
+        self.trace.append(
+            turn_id, "outcome",
+            {"record_id": episode.id, "success": outcome.success, "label": label},
+            failure=outcome.failure,
+        )
+
+        # prospective memory: turn-count intentions advance after each turn (§3.7)
+        reminders: list[str] = []
+        for due in self.intentions.advance_turns():
+            reminders.append(self.intentions.fire(due))
+            self.trace.append(turn_id, "intention", {"fired": due.id, "action": due.content.get("action")})
+
+        self._last_turn_record = episode.id
+        self.state.save(self.state_dir / "mind_state.json")
+        return Reply(
+            text=outcome.text,
+            confidence=confidence,
+            confidence_label=label,
+            turn_id=turn_id,
+            success=outcome.success,
+            failure=outcome.failure,
+            record_id=episode.id,
+            reminders=tuple(reminders),
+        )
+
+    # ======================================================================
+    # Records & helpers
+    # ======================================================================
+
+    def _record_episode(
+        self,
+        turn_id: str,
+        reply_text: str,
+        confidence: float,
+        success: bool,
+        failure: Optional[FailureTaxonomy],
+        *,
+        extra: dict[str, Any],
+    ) -> Entry:
+        now = utcnow_iso()
+        record_id = self.memory.allocate_id()
+        prior = self.episodes.latest(1)
+        refs = [EvidenceRef(record_id=prior[0].id, role="context")] if prior else []
+        content = {
+            "reply": reply_text,
+            "success": success,
+            "failure": failure.value if failure else None,
+            **extra,
+        }
+        entry = Entry(
+            id=record_id,
+            kind=RecordKind.EPISODE,
+            content=content,
+            source=Source.OWNER if "user_text" in extra else Source.SELF_REFLECTION,
+            confidence=confidence,
+            created_at=now,
+            updated_at=now,
+            last_observed_at=now,
+            evidence_refs=refs,
+        )
+        self.episodes.append(entry)
+        self._last_turn_record = record_id
+        return entry
+
+    def _log_learning_episode(self, *, user_text: str, content: dict[str, Any]) -> Entry:
+        return self._record_episode(
+            "act", reply_text="", confidence=0.8, success=True, failure=None,
+            extra={"user_text": user_text, **content},
+        )
+
+    def _new_turn_id(self) -> str:
+        turn_id = f"turn-{self.state.next_turn:05d}"
+        self.state.next_turn += 1
+        return turn_id
+
+    def _reflect_cursor(self) -> int:
+        cursors = self.memory.query(kind="self", type="reflection_cursor")
+        if cursors:
+            return int(cursors[-1].content.get("index", 0))
+        return 0
+
+    def _set_reflect_cursor(self, index: int) -> None:
+        cursors = self.memory.query(kind="self", type="reflection_cursor")
+        if cursors:
+            cursor = cursors[-1]
+            cursor.content["index"] = index
+            cursor.revise("reflection cursor advanced", confidence=1.0)
+            self.memory.self_model.save_all()
+            return
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.SELF,
+            content={"type": "reflection_cursor", "index": index},
+            source=Source.SELF_REFLECTION,
+            confidence=1.0,
+        )
+        self.memory.self_model.append(entry)
+
+    def recall(self, limit: int = 8) -> list[dict[str, str]]:
+        """Episodic retrieval: recent episodes as context (§3.1, Domain B).
+
+        Stage 0's shape is kept — a list of role/text dicts — so later
+        retrieval strategies (trigger-aware, gist-based) can replace the body
+        of this method without touching its consumers.
+        """
+        return [
+            {"role": "user", "text": e.content.get("user_text", "") or e.content.get("reply", ""), "record_id": e.id}
+            for e in self.episodes.latest(limit)
+        ]
+
+    @classmethod
+    def open(cls, state_dir: str | Path, substrate: Optional[Substrate] = None, **kwargs: Any) -> "Mind":
+        """Continue the mind living in `state_dir` (restart continuity)."""
+        return cls(substrate=substrate, state_dir=state_dir, **kwargs)

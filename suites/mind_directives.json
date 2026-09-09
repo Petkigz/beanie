@@ -1,0 +1,15 @@
+{
+  "id": "mind_directives",
+  "description": "Directive paths: commanded memory with contradiction, ambiguity honesty, correction channel, prospective memory firing, preference learning, authority grant.",
+  "turns": [
+    {"user": "hello beanie", "expect": "received"},
+    {"user": "remember that server_b is in tokyo", "expect": "remembered"},
+    {"user": "remember that server_b is in osaka", "expect": "contradicts"},
+    {"user": "please do something ambiguous here", "expect": "ambiguous"},
+    {"user": "wait, that's not right", "expect": "wrong"},
+    {"user": "remind me in 1 turns to breathe", "expect": "remind"},
+    {"user": "i prefer dark mode over light mode", "expect": "dark mode"},
+    {"user": "moving on to something else", "expect": "breathe"},
+    {"user": "you may move_file", "expect": "understood"}
+  ]
+}
