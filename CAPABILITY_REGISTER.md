@@ -153,3 +153,6 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 38–41 | 1 | Failure taxonomy tags, suite runner, consistency + contradiction counters in trace |
 | 42 (T4) | 1 | Explicit preferences learned (corroborated, superseded-not-deleted); implicit proposals from repeated corrections require owner confirmation — tests passing |
 | 19 (T5) | 1 | Curiosity now fires in the loop: unresolved requests and unknown goals record open questions (deduplicated); open questions feed calibration (T8) and incubation |
+| 7 (retrieval) | 1 | Relevance-aware recall: context for a turn is built from stored knowledge and episodes about the same subjects first, recency fills the window (Domain B, tests passing) |
+| 10 (counterfactual) | 1 (sandbox domain) | `Simulator` replays moves/plans against a virtual tree loaded from the body; `predict_goal` and "what if I moved X to Y" answer without touching the body; text-domain counterfactual reasoning still needs the model tier |
+| 33 (ToM) | 1 (belief layer) | Owner belief statements stored separately from facts; conflicts surfaced gently without overwriting facts; full belief-model-driven explanation adaptation still needs the model tier |

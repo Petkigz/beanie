@@ -45,6 +45,7 @@ src/beanie/
   preferences.py  preference learning & implicit discovery (T4)
   body.py         sandbox + opt-in OS body; four-state authority gate (§5/§7)
   planning.py     goal→skill→plan→verify→repair + incubation (§4.8, T3); target folder inferred from goal wording (§7)
+  simulate.py     virtual replay of the body: predict_goal + "what if I moved X to Y", body never touched (rows 10–11)
   intention.py    prospective memory (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
   explain.py      explanation service, auditable, on demand (§4.5/T10)
@@ -57,7 +58,7 @@ src/beanie/
   cli.py          REPL window into the mind
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           four longitudinal scenarios (skeleton, directives, beliefs, preferences)
-tests/            52 tests incl. the conformance drift guard + T-test battery
+tests/            61 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

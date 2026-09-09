@@ -42,11 +42,17 @@ from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflecto
 from .state import MindState
 from .stores import Memory
 from .substrate import Outcome, StubSubstrate, Substrate
+from .simulate import Simulator, parse_what_if
 from .trace import FailureTaxonomy, Trace
 
 #: owner statements that start a preference (VISION T4)
 _PREF_RE = re.compile(
     r"^\s*(?:i\s+prefer\b|i\s+like\b|when\s+(?:i'?m\s+|i\s+am\s+|i\s+)?(?:uncertain|unsure|in\s+doubt|not\s+sure)\b)",
+    re.IGNORECASE,
+)
+#: owner belief statements → owner-model belief layer (§3.5, row 33)
+_BELIEF_RE = re.compile(
+    r"^\s*(?:i\s+|my\s+)?(?:think|thought|believe|believed|assume|assumed|suspect|suspected)\s+(?:that\s+)?(.+?)\s*\.?\s*$",
     re.IGNORECASE,
 )
 #: owner statements that start a correction (ARCHITECTURE §4.4)
@@ -134,6 +140,7 @@ class Mind:
         self.body = SandboxBody(self.state_dir / "sandbox")
         self.gate = AuthorityGate(self.memory, default=authority)
         self.executor = PlanExecutor(self.body, self.gate, self.learner, self.memory)
+        self.simulator = Simulator(self.body)
         self.attention = NoveltyDetector(self.state_dir / "sandbox")
 
         self.reflect_every = reflect_every
@@ -181,22 +188,79 @@ class Mind:
             }[action]
             return self._directive_reply(turn_id, f"Understood. {phrase} ({capability} → {action})", success=True, record_id=rule.id)
 
-        # 4) commanded memory ("remember that …") → semantic store via §3.6
+        # 4) what-if questions → simulated prediction, body untouched (rows 10–11)
+        what_if = parse_what_if(text)
+        if what_if is not None:
+            return self._what_if(turn_id, text, what_if)
+
+        # 5) belief statements ("i think that X is Y") → owner belief layer (§3.5)
+        if _BELIEF_RE.match(text):
+            return self._note_belief(turn_id, text)
+
+        # 6) commanded memory ("remember that …") → semantic store via §3.6
         remember = _REMEMBER_RE.match(text)
         if remember:
             return self._remember(turn_id, remember.group(1).strip())
 
-        # 5) explanation on demand (§4.5 / T10)
+        # 7) explanation on demand (§4.5 / T10)
         if _EXPLAIN_RE.match(text):
             return self._explain_last(turn_id, text)
 
-        # 6) corrections — the continuous "no, that's wrong" channel (§4.4)
+        # 8) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
         if correction:
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
-        # 7) default cognition path (§4.1)
+        # 9) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
+
+    def _what_if(self, turn_id: str, text: str, what_if: tuple[str, str]) -> Reply:
+        """Answer a counterfactual about the body with a simulation (§7, row 10)."""
+        file_name, dst = what_if
+        prediction = self.simulator.predict_move(file_name, dst)
+        # the counterfactual itself becomes a learning episode (why: outcome)
+        episode = self._record_episode(
+            turn_id, prediction.summary, 0.9, prediction.ok, None,
+            extra={"user_text": text, "simulated": True, "file": file_name, "dst": dst,
+                   "prediction": prediction.summary, "reply": prediction.summary},
+        )
+        self.trace.append(turn_id, "simulation", {"file": file_name, "dst": dst, "ok": prediction.ok,
+                                                  "summary": prediction.summary})
+        return Reply(text=prediction.summary, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=prediction.ok, record_id=episode.id)
+
+    def _note_belief(self, turn_id: str, text: str) -> Reply:
+        """Record an owner belief separately from facts; surface conflicts (§3.5)."""
+        statement = _BELIEF_RE.match(text).group(1).strip()
+        fact = _FACT_RE.match(statement)
+        subject = fact.group(1).strip().lower() if fact else statement.lower()[:60]
+        obj = fact.group(3).strip() if fact else ""
+        # if the owner's belief contradicts a fact on record, say so gently —
+        # never overwrite the fact; ask whether it changed (T2 discipline)
+        conflict_note = ""
+        for entry in self.memory.query(kind="semantic", type="fact", subject=subject):
+            if entry.content.get("predicate", "") != (fact.group(2).lower() if fact else "described_by"):
+                continue
+            if obj and entry.content.get("object") != obj:
+                conflict_note = (f" My records currently say {subject} is {entry.content.get('object')} — "
+                                 f"has that changed? I've kept my fact as-is.")
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.OWNER_MODEL,
+            content={"type": "belief", "subject": subject, "predicate": fact.group(2).lower() if fact else "described_by",
+                     "object": obj, "raw": statement, "status": "active"},
+            source=Source.OWNER,
+            confidence=0.7,
+        )
+        self.memory.owner_model.append(entry)
+        reply_text = f"Noted as your belief: {statement}.{conflict_note}"
+        episode = self._record_episode(
+            turn_id, reply_text, 0.9, True, None,
+            extra={"user_text": text, "belief_id": entry.id, "subject": subject, "reply": reply_text},
+        )
+        self.trace.append(turn_id, "belief", {"belief_id": entry.id, "subject": subject, "conflict": bool(conflict_note)})
+        return Reply(text=reply_text, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True, record_id=episode.id)
 
     def _learn_preference(self, turn_id: str, text: str) -> Reply:
         """Learn an explicit preference statement (T4)."""
@@ -472,7 +536,7 @@ class Mind:
     # ======================================================================
 
     def _default_turn(self, turn_id: str, text: str) -> Reply:
-        context = self.recall(limit=8)
+        context = self.recall(text, limit=8)
         self.trace.append(turn_id, "perception", {"user_text": text[:200]})
 
         # effort allocation (§4.6): choose a processing depth first
@@ -562,6 +626,24 @@ class Mind:
     # ======================================================================
     # Records & helpers
     # ======================================================================
+
+    def predict_goal(self, goal: str, base_dir: str | None = None) -> dict:
+        """Simulate a goal before executing it; the body is never touched.
+
+        Counterfactual replay over the current world state (row 10): the
+        reply says what *would* happen — files that would move, folders that
+        would be created first, or the failure that would occur.
+        """
+        if base_dir is None:
+            base_dir = self._infer_target_dir(goal)
+        plan, questions = self.planner.plan_for_goal(goal, base_dir=base_dir)
+        if plan is None:
+            return {"known": False, "questions": questions, "summary": "I don't yet know how to do that — teach me once and I'll learn it."}
+        prediction = self.simulator.predict_goal(dict(plan.mapping), base_dir)
+        self.trace.append("act", "simulation", {"goal": goal, "ok": prediction.ok, "summary": prediction.summary})
+        return {"known": True, "ok": prediction.ok, "summary": prediction.summary,
+                "moved": prediction.moved, "created_dirs": prediction.created_dirs,
+                "failure": prediction.failure}
 
     def _infer_target_dir(self, goal: str) -> str:
         """Pick which existing folder a goal is about, from its own words."""
@@ -659,17 +741,52 @@ class Mind:
         )
         self.memory.self_model.append(entry)
 
-    def recall(self, limit: int = 8) -> list[dict[str, str]]:
-        """Episodic retrieval: recent episodes as context (§3.1, Domain B).
+    def recall(self, text: str | None = None, limit: int = 8) -> list[dict[str, str]]:
+        """Memory retrieval: what is relevant now, not just what is recent.
 
-        Stage 0's shape is kept — a list of role/text dicts — so later
-        retrieval strategies (trigger-aware, gist-based) can replace the body
-        of this method without touching its consumers.
+        With `text`, related stored knowledge about the same subjects (facts,
+        beliefs, preferences — the stores of §3.2/§3.5) and related episodes
+        are surfaced first, then recent episodes fill the window (Domain B /
+        register row 7: retrieval is triggered by what the situation is
+        about). Without `text` this keeps the original recency behavior.
+
+        The returned shape stays a list of role/text dicts so every consumer
+        (substrate context, explanations) is unchanged.
         """
-        return [
-            {"role": "user", "text": e.content.get("user_text", "") or e.content.get("reply", ""), "record_id": e.id}
-            for e in self.episodes.latest(limit)
-        ]
+        if not text:
+            return [
+                {"role": "user", "text": e.content.get("user_text", "") or e.content.get("reply", ""), "record_id": e.id}
+                for e in self.episodes.latest(limit)
+            ]
+        tokens = {t for t in re.findall(r"[a-z0-9]{3,}", text.lower()) if not t.isdigit()}
+        context: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        def push(record_id: str, entry_text: str) -> None:
+            if record_id in seen:
+                return
+            seen.add(record_id)
+            context.append({"role": "user", "text": entry_text, "record_id": record_id})
+
+        # 1) stored knowledge about the same subjects (facts/beliefs/preferences)
+        for entry in self.memory.subjects_matching(tokens):
+            content = entry.content
+            if content.get("type") not in ("fact", "belief", "preference"):
+                continue
+            if content.get("status") == "superseded":
+                continue
+            subject, predicate, obj = (str(content.get("subject", "")), str(content.get("predicate", "")),
+                                       str(content.get("object", content.get("choice", ""))))
+            push(entry.id, f"on record: {subject} {predicate} {obj}".strip())
+        # 2) episodes about the same subjects
+        for entry in self.episodes.all()[-60:]:
+            words = {w for w in re.findall(r"[a-z0-9]{3,}", str(entry.content.get("user_text", "")).lower())}
+            if tokens & words:
+                push(entry.id, entry.content.get("user_text", "") or entry.content.get("reply", ""))
+        # 3) recent episodes fill the window (recency still matters)
+        for entry in self.episodes.latest(limit):
+            push(entry.id, entry.content.get("user_text", "") or entry.content.get("reply", ""))
+        return context[:limit]
 
     @classmethod
     def open(cls, state_dir: str | Path, substrate: Optional[Substrate] = None, **kwargs: Any) -> "Mind":

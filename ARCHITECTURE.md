@@ -434,8 +434,10 @@ substrate or longitudinal history for their full pass criterion (VISION §5).
 
 Module → spec map: `records` §3 envelope · `stores` §3.1–3.7 · `belief` §3.6 + T2/T11/T12 ·
 `calibration` T8/T13 · `learning` §6 + T1/T3/T9 · `preferences` §6/T4 · `body` §5/§7 ·
-`planning` T1/T3/T12/§4.8 · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
-`cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1.
+`planning` T1/T3/T12/§4.8 · `simulate` Domain A / rows 10–11 (counterfactual replay over
+the body, never touching it) · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
+`cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1 (incl. relevance-aware recall,
+row 7, and the owner-belief layer, row 33).
 
 Honesty ledger — what is *not* yet true: the default substrate is a documented test double
 (real tiers plug in via `HTTPSubstrate`); OS control and fine-tuning are opt-in seams; no
