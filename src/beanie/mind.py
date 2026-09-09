@@ -30,6 +30,9 @@ from .body import AuthorityGate, SandboxBody, parse_authority_statement
 from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
 from .explain import ExplanationService
+
+#: reflex tier budget: at most this many words per trivial utterance (§4.6)
+_REFLEX_MAX_WORDS = 6
 from .intention import IntentionKeeper, parse as parse_intention
 from .learning import DemonstrationLearner, DemoAction, SkillProposal
 from .planning import Incubator, PlanExecutor, PlanResult, Planner
@@ -227,7 +230,10 @@ class Mind:
         reminders, stale-state decay sweep, incubation revisits, and the
         reflection pass when enough episodes have accumulated.
         """
-        notes: dict[str, Any] = {"reminders": [], "stale": [], "incubation_revisits": [], "reflection": [], "preferences": []}
+        notes: dict[str, Any] = {
+            "reminders": [], "stale": [], "incubation_revisits": [],
+            "reflection": [], "preferences": [], "curiosity": [],
+        }
 
         # T4 implicit discovery: repeated corrections may propose a preference
         for proposal in self.preferences.mine_implicit(self.episodes.all()):
@@ -248,6 +254,19 @@ class Mind:
         for entry in self.incubator.due_for_revisit():
             self.incubator.revisit(entry, "revisited on background budget (new evidence present)")
             notes["incubation_revisits"].append(entry.id)
+
+        # idle exploration (R3.24 / register row 21): budgeted self-directed
+        # attention — surface the oldest unexplored open question and mark it,
+        # so every idle budget does real cognitive work but never loops (§4.2)
+        for question in self.memory.query(kind="self", type="question", status="open"):
+            if not question.content.get("explored_at"):
+                subject = str(question.content.get("subject", "?"))
+                question.content["explored_at"] = utcnow_iso()
+                question.revise("idle exploration pass", observe=False)
+                self.memory.self_model.save_all()
+                notes["curiosity"].append(subject)
+                self.trace.append("bg", "curiosity", {"question_id": question.id, "subject": subject})
+                break
 
         cursor = self._reflect_cursor()
         new_episodes = self.episodes.all()[cursor:]
@@ -448,18 +467,42 @@ class Mind:
         context = self.recall(limit=8)
         self.trace.append(turn_id, "perception", {"user_text": text[:200]})
 
-        # dual-process: System-1 candidate, System-2 verdict (§2)
+        # effort allocation (§4.6): choose a processing depth first
+        depth = self._effort_depth(text)
         observation = {"user_text": text, "turn_id": turn_id}
-        candidate = self.substrate.fast(observation, context)
-        outcome = self.substrate.deep(observation, context, candidate)
+        outcome: Optional[Outcome] = None
+        candidate = ""
+
+        if depth == "reflex":
+            # trivial, low-stakes input → the fast tier answers alone; the
+            # deep tier is never woken (§4.6: don't burn deep compute on 2+2)
+            candidate = self.substrate.fast(observation, context)
+            if candidate.startswith("fast: low-confidence"):
+                depth = "deep"  # fast tier flagged; escalate (§2 contract)
+        if depth != "reflex":
+            # dual-process: System-1 candidate, System-2 verdict (§2)
+            candidate = self.substrate.fast(observation, context)
+            outcome = self.substrate.deep(observation, context, candidate)
+        else:
+            outcome = Outcome(
+                text=candidate,
+                confidence=float(getattr(self.substrate, "FAST_CONFIDENCE", 0.9)),
+                success=True,
+                failure=FailureTaxonomy.NONE,
+                fast_candidate=candidate,
+                slow_candidate="",
+                meta={"depth": "reflex"},
+            )
+        assert outcome is not None
 
         # T5: gaps noticed by the loop become open questions (no silent guesses)
         if outcome.failure in (FailureTaxonomy.MISSING_CONTEXT, FailureTaxonomy.PROMPT_AMBIGUITY):
             self.curiosity.open_question(text[:60], f"owner request left unresolved: {text[:160]}")
 
-        # effort allocation (§4.6): adversarial pre-flight only when it matters
+        # adversarial pre-flight only when the stakes justify it (§4.7 via §4.6)
         concerns: list[dict] = []
-        if stakes_of(text) and not outcome.failure and outcome.success:
+        stakes = stakes_of(text)
+        if depth in ("deep", "deep_verified") and stakes and not outcome.failure and outcome.success:
             concerns = self.devil.check(text, outcome.confidence)
 
         # calibration (T8): evidence state adjusts the substrate's confidence
@@ -476,7 +519,7 @@ class Mind:
 
         self.trace.append(
             turn_id, "decision",
-            {"candidate": candidate, "reply": outcome.text[:200], "label": label,
+            {"candidate": candidate, "reply": outcome.text[:200], "label": label, "depth": depth,
              "concerns": concerns, "residual": residual, "calibration": reasons},
         )
 
@@ -511,6 +554,19 @@ class Mind:
     # ======================================================================
     # Records & helpers
     # ======================================================================
+
+    @staticmethod
+    def _effort_depth(text: str) -> str:
+        """Choose a processing depth by perceived stakes and size (§4.6).
+
+        reflex          → trivial/low-stakes, fast tier only
+        deep            → full dual-process turn
+        deep_verified   → high stakes: deep tier + pre-flight check (§4.7)
+        """
+        stakes = stakes_of(text)
+        if stakes == 0 and len(text.split()) <= _REFLEX_MAX_WORDS:
+            return "reflex"
+        return "deep_verified" if stakes >= 2 else "deep"
 
     def _record_episode(
         self,

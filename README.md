@@ -55,7 +55,7 @@ src/beanie/
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
   measure.py      longitudinal suite runner (§8)
   cli.py          REPL window into the mind
-tests/            45 tests incl. the conformance drift guard + T-test battery
+tests/            50 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

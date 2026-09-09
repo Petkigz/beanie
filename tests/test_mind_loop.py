@@ -55,12 +55,16 @@ def test_each_failure_taxonomy_category_is_mapped(tmp_path):
     assert all(e.failure != FailureTaxonomy.NONE for e in mind.trace.events if e.kind == "outcome")
 
 
-def test_fast_tier_fires_before_deep_tier(tmp_path):
-    """Dual-process contract: candidate exists before the deep verdict (§2)."""
+def test_effort_depth_is_recorded_per_turn(tmp_path):
+    """Effort allocation (§4.6): every decision records which depth ran."""
     mind = make_mind(tmp_path)
-    reply = mind.step("hello")
-    episode = mind.episodes.find(reply.record_id)
-    assert episode.content["candidate"].startswith("fast:")
+    mind.step("hello")  # reflex
+    mind.step("please do something ambiguous here")  # reflex → deep (flag)
+    mind.step("delete the permanent file right now please")  # stakes ≥ 2 → deep_verified
+    decisions = [e for e in mind.trace.events if e.kind == "decision"]
+    assert decisions[0].payload["depth"] == "reflex"
+    assert decisions[1].payload["depth"] == "deep"
+    assert decisions[2].payload["depth"] == "deep_verified"
 
 
 def test_trace_and_episodes_persist_to_disk(tmp_path):

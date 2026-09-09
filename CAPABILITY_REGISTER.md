@@ -130,13 +130,13 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 8, 9 | 1 | Planner/executor loop; reflection with lessons (T3 test passing) |
 | 10, 11 | 0 | Property — counterfactual reasoning & object permanence need the model tier |
 | 12 | 1 | Fast-then-deep contract + candidate mismatch logged |
-| 13 | 1 | Effort allocation by stakes; depth choice implemented (reflex vs deep) |
+| 13 | 1 | Effort allocation by stakes — depth routing reflex/deep/deep_verified, fast-tier answers trivial turns alone, flags escalate; tests assert which tier ran (§4.6) |
 | 14 | 1 | Bounded devil's advocate over revision history (concerns recorded per turn) |
 | 15 | 1 | Incubation queue with evidence-version gating (§4.8 test passing) |
 | 16 | 1 | Owner-vs-owner conflicts keep both entries, superseded flagged, ask surfaced |
 | 17, 24 | 0→P | Ontological evolution / meta-learning — properties for Stage 5 evidence |
 | 18, 19, 20 | 1 | Real-time learning (skills within session, persist), curiosity open-question store; active sensing wired as questions/ask in correction & authority flows |
-| 21 | 0 | Idle novelty-seeking not implemented (budget policy §9.1 unresolved) |
+| 21 | 1 | Budgeted idle exploration: tick() surfaces the oldest unexplored open question per budget, marks it explored, logs a curiosity trace event — never loops (§4.2, tests passing; content of self-chosen investigation still needs the model tier) |
 | 22 | 1 | One-demonstration learning with transfer — T1 test passing |
 | 23 | 1 | Correction → strategy revision — T9 test passing |
 | 25, 26 | 1 | Self-initiated triggers via tick/observe; tool chaining in plans |

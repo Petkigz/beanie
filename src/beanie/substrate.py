@@ -57,11 +57,19 @@ class StubSubstrate(Substrate):
       contains "tool-error"             → failed outcome, TOOL_EXECUTION_ERROR
       anything else                     → acknowledged, confident, success
 
-    Each trigger also makes `fast()` emit a low-confidence flag, exercising the
-    dual-process contract (candidate first, then deep tier verdict).
+    fast() returns a usable reflex reply for ordinary input (the effort
+    allocation policy can answer trivial turns from the fast tier alone,
+    §4.6) and a "fast: low-confidence flag …" string for triggers — a flag
+    that tells the loop to escalate to the deep tier. deep() verifies or
+    refuses. Call counters exist so effort-allocation tests can assert which
+    tier ran (§4.6).
     """
 
     name = "stub"
+
+    #: confidence of a fast-tier reflex answer (used by the loop when the
+    #: effort policy answers from the fast tier alone, §4.6)
+    FAST_CONFIDENCE = 0.95
 
     _TRIGGERS: dict[str, tuple[float, FailureTaxonomy, str]] = {
         "ambiguous": (0.25, FailureTaxonomy.PROMPT_AMBIGUITY,
@@ -78,14 +86,21 @@ class StubSubstrate(Substrate):
                        "A tool step returned unreliable output and I caught it; do not trust the result."),
     }
 
+    def __init__(self) -> None:
+        self.fast_calls = 0
+        self.deep_calls = 0
+
     def fast(self, observation: dict[str, Any], context: list[dict[str, Any]]) -> str:
+        self.fast_calls += 1
         text = observation.get("user_text", "")
         for phrase in self._TRIGGERS:
             if phrase in text:
                 return f"fast: low-confidence flag for {self._TRIGGERS[phrase][1].value}"
-        return "fast: acknowledge"
+        trimmed = " ".join(text.split())[:120]
+        return f"Received: {trimmed}."
 
     def deep(self, observation: dict[str, Any], context: list[dict[str, Any]], candidate: str) -> Outcome:
+        self.deep_calls += 1
         text = observation.get("user_text", "")
         for phrase, (conf, failure, reply) in self._TRIGGERS.items():
             if phrase in text:
