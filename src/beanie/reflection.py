@@ -83,7 +83,10 @@ class StubReflector(Reflector):
             if content.get("plan_failed"):
                 notes.append(self._lesson(f"Plan failure on {content.get('goal', '?')}: {content.get('failure', 'unknown')}"))
             if content.get("skill_confirmed"):
-                notes.append(self._lesson(f"Owner confirmed a learned rule: {content.get('rule', '')[:200]}"))
+                rule_text = content.get("rule", "")
+                if not isinstance(rule_text, str):
+                    rule_text = str(rule_text)[:200]
+                notes.append(self._lesson(f"Owner confirmed a learned rule: {rule_text[:200]}"))
         if not notes:
             notes.append("reflection: nothing beyond routine episodes to distill")
         # every reflection ends with the identity summary refresh (T7 data path)

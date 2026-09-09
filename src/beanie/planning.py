@@ -44,6 +44,7 @@ class PlanResult:
     failure_taxonomy: Optional[str] = None
     repairs: int = 0
     last_result: Optional[dict[str, Any]] = None
+    actions_done: list[dict[str, Any]] = field(default_factory=list)  # executed steps
 
 
 #: deterministic repairs for known failure modes — scaffolding until skills
@@ -101,6 +102,9 @@ class PlanExecutor:
             for attempt in range(2):
                 try:
                     plan.last_result = self.body.run(step.capability, dict(step.args))
+                    plan.actions_done.append(
+                        {"capability": step.capability, "args": dict(step.args), "result": plan.last_result}
+                    )
                     break
                 except BodyError as exc:
                     plan.failure_taxonomy = exc.kind or exc.taxonomy  # what failed (Q28)

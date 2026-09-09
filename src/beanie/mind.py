@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 from .attention import NoveltyDetector
 from .belief import ContradictionEngine, DecayMonitor
-from .body import AuthorityGate, SandboxBody, parse_authority_statement
+from .body import AuthorityGate, BodyError, SandboxBody, parse_authority_statement
 from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
 from .explain import ExplanationService
@@ -69,6 +69,10 @@ _FACT_RE = re.compile(
     re.IGNORECASE,
 )
 _EXPLAIN_RE = re.compile(r"^\s*(?:explain|why did you|why do you think|walk me through)\b", re.IGNORECASE)
+#: "where is X?" → world-model location lookup (Domain A object permanence)
+_WHERE_RE = re.compile(r"^\s*where(?:'s|\s+is|\s+are)\s+(.+?)\s*\??\s*$", re.IGNORECASE)
+#: "how do you organize …?" → teaching the owner the learned rule (row 34)
+_HOW_RE = re.compile(r"^\s*how\s+do\s+you\s+(?:organize|sort|handle|do)\s+(?:it|this|that)?\s*(.*?)\s*\??\s*$", re.IGNORECASE)
 _CANCEL_REMARK_RE = re.compile(r"^\s*(?:cancel|forget|never mind)\b", re.IGNORECASE)
 
 
@@ -193,26 +197,142 @@ class Mind:
         if what_if is not None:
             return self._what_if(turn_id, text, what_if)
 
-        # 5) belief statements ("i think that X is Y") → owner belief layer (§3.5)
+        # 5) "where is X?" → world-model location lookup (row 11)
+        where = _WHERE_RE.match(text)
+        if where:
+            handled = self._where_is(turn_id, text, where.group(1).strip())
+            if handled is not None:
+                return handled
+
+        # 6) "how do you organize …?" → teach the owner the learned rule (row 34)
+        how = _HOW_RE.match(text)
+        if how:
+            handled = self._teach_rule(turn_id, text, how.group(1).strip())
+            if handled is not None:
+                return handled
+
+        # 7) belief statements ("i think that X is Y") → owner belief layer (§3.5)
         if _BELIEF_RE.match(text):
             return self._note_belief(turn_id, text)
 
-        # 6) commanded memory ("remember that …") → semantic store via §3.6
+        # 8) commanded memory ("remember that …") → semantic store via §3.6
         remember = _REMEMBER_RE.match(text)
         if remember:
             return self._remember(turn_id, remember.group(1).strip())
 
-        # 7) explanation on demand (§4.5 / T10)
+        # 9) explanation on demand (§4.5 / T10)
         if _EXPLAIN_RE.match(text):
             return self._explain_last(turn_id, text)
 
-        # 8) corrections — the continuous "no, that's wrong" channel (§4.4)
+        # 10) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
         if correction:
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
-        # 9) default cognition path (§4.1)
+        # 11) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
+
+    def _where_is(self, turn_id: str, text: str, target: str) -> Optional[Reply]:
+        """Answer from the world model; verify when the record is doubtful.
+
+        Object permanence (Domain A): objects the mind has seen or moved keep
+        existing in its world model even when out of the current view — and a
+        stale/doubtful record triggers a fresh look (proactive re-check, T12)
+        instead of a confident lie. Returns None when the target is not a
+        known thing (falls through to normal cognition).
+        """
+        name = target.strip().lower()
+        facts = self.memory.query(kind="semantic", type="fact", subject=name, predicate="located_at")
+        if not facts:
+            # maybe it exists in the sandbox even though never recorded
+            found = self._find_in_body(name)
+            if found is None:
+                return None
+            self._record_location(name, found, Source.PERCEPTION, 0.6, "found during a where-is question")
+            reply_text = f"{name} is at {found} (I found it in my environment)."
+        else:
+            fact = facts[-1]
+            obj = str(fact.content.get("object", ""))
+            if fact.confidence >= 0.8 and not fact.content.get("stale") and fact.effective_confidence() >= 0.6:
+                reply_text = f"According to my records, {name} is at {obj}."
+            else:
+                found = self._find_in_body(name)
+                if found is not None:
+                    self._record_location(name, found, Source.PERCEPTION, 0.7, "re-checked: still present")
+                    reply_text = f"I checked — {name} is at {found}."
+                else:
+                    self._forget_location(name, "not found during re-check")
+                    reply_text = f"I last knew {name} as being at {obj}, but I couldn't find it on a fresh look — it may have moved or been removed."
+        episode = self._record_episode(
+            turn_id, reply_text, 0.9, True, None,
+            extra={"user_text": text, "directive": "where_is", "target": name, "reply": reply_text},
+        )
+        self.trace.append(turn_id, "world", {"target": name, "reply": reply_text})
+        return Reply(text=reply_text, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def _find_in_body(self, name: str) -> Optional[str]:
+        for path in self.body.root.rglob("*"):
+            if path.is_file() and path.name.lower() == name:
+                return str(path.relative_to(self.body.root))
+        return None
+
+    def _teach_rule(self, turn_id: str, text: str, rest: str) -> Optional[Reply]:
+        """Teaching: explain the learned rule for the topic asked about (row 34)."""
+        skills = self.learner.active_skills()
+        if not skills:
+            return None
+        topic = rest.strip().lower()
+        skill = None
+        if topic:
+            for candidate in reversed(skills):
+                if topic in str(candidate.content.get("goal_class", "")).lower() or topic in str(candidate.content.get("title", "")).lower():
+                    skill = candidate
+                    break
+            if skill is None:
+                return None  # not about a skill we hold
+        else:
+            skill = skills[-1]
+        mapping = dict(skill.content.get("mapping", {}))
+        parts = [f"{'.' + ext if '.' not in ext else ext} files → {dst}" for ext, dst in mapping.items()]
+        body = "; ".join(parts) if parts else "I don't have a fixed mapping yet"
+        reply_text = (f"Here's how I {skill.content.get('goal_class', 'do it')}: {body}. "
+                      f"I learned this from your demonstration and you confirmed it.")
+        episode = self._record_episode(
+            turn_id, reply_text, 0.9, True, None,
+            extra={"user_text": text, "directive": "teach", "skill_id": skill.id, "reply": reply_text},
+        )
+        return Reply(text=reply_text, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def _record_location(self, name: str, path_value: str, source: Source, confidence: float, reason: str) -> Entry:
+        """Upsert the world fact '<name> is located at <path_value>' (row 11)."""
+        name = name.lower()
+        facts = self.memory.query(kind="semantic", type="fact", subject=name, predicate="located_at")
+        if facts:
+            entry = facts[-1]
+            entry.content["object"] = path_value
+            entry.content.pop("stale", None)
+            entry.revise(reason, confidence=confidence)
+            self.memory.semantic.save_all()
+            return entry
+        entry = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.SEMANTIC,
+            content={"type": "fact", "subject": name, "predicate": "located_at", "object": path_value},
+            source=source,
+            confidence=confidence,
+        )
+        self.memory.semantic.append(entry)
+        return entry
+
+    def _forget_location(self, name: str, reason: str) -> None:
+        """The object is gone from the world model (observed removal)."""
+        name = name.lower()
+        for entry in self.memory.query(kind="semantic", type="fact", subject=name, predicate="located_at"):
+            entry.revise(reason, confidence=0.05, observe=False)
+            entry.content["stale"] = True
+        self.memory.semantic.save_all()
 
     def _what_if(self, turn_id: str, text: str, what_if: tuple[str, str]) -> Reply:
         """Answer a counterfactual about the body with a simulation (§7, row 10)."""
@@ -331,6 +451,39 @@ class Mind:
                 notes["curiosity"].append(subject)
                 self.trace.append("bg", "curiosity", {"question_id": question.id, "subject": subject})
                 break
+        else:
+            # no open questions left: idle cognition still senses the world —
+            # inspect one environment directory not yet explored this session
+            # (self-initiated perception content, not just bookkeeping)
+            for directory in sorted((p for p in self.body.root.iterdir() if p.is_dir() and not p.name.startswith(".")),
+                                    key=lambda p: p.name):
+                if self.memory.query(kind="self", type="explored_dir", subject=directory.name.lower()):
+                    continue
+                try:
+                    listing = self.body.run("list_files", {"dir": directory.name})
+                except BodyError:
+                    continue
+                entry = Entry(
+                    id=self.memory.allocate_id(),
+                    kind=RecordKind.EPISODE,
+                    content={"type": "observation", "event": {"kind": "inspect", "dir": directory.name,
+                                                             "files": listing.get("files", [])},
+                             "user_text": f"idle inspection of {directory.name}"},
+                    source=Source.PERCEPTION,
+                    confidence=0.6,
+                )
+                self.episodes.append(entry)
+                mark = Entry(
+                    id=self.memory.allocate_id(),
+                    kind=RecordKind.SELF,
+                    content={"type": "explored_dir", "subject": directory.name.lower()},
+                    source=Source.SELF_REFLECTION,
+                    confidence=1.0,
+                )
+                self.memory.self_model.append(mark)
+                notes["curiosity"].append(f"inspected {directory.name}")
+                self.trace.append("bg", "curiosity", {"inspected_dir": directory.name})
+                break
 
         cursor = self._reflect_cursor()
         new_episodes = self.episodes.all()[cursor:]
@@ -354,6 +507,13 @@ class Mind:
                 confidence=0.6,
             )
             self.episodes.append(entry)
+            # world model: objects persist; track where they are (row 11)
+            name = Path(event["path"]).name
+            if event["kind"] == "add":
+                self._record_location(name, event["path"], Source.PERCEPTION, 0.6,
+                                      f"observed new file {event['path']}")
+            elif event["kind"] == "remove":
+                self._forget_location(name, f"observed {event['path']} disappear")
             self.trace.append("perception", "perception", {"event": event})
         return events
 
@@ -400,6 +560,15 @@ class Mind:
             self.trace.append("act", "plan", {"goal": goal, "questions": questions})
             return PlanResult(skill_id=None, steps=[], outcome="needs_information")
         result = self.executor.execute(plan)
+        # world model update from own actions: moved files are now at their
+        # new locations (object permanence — row 11, Domain A)
+        for action in result.actions_done:
+            if action["capability"] == "move_file":
+                src = str(action["args"]["src"])
+                dst = str(action["args"]["dst"])
+                name = Path(src).name
+                self._record_location(name, f"{dst.rstrip('/')}/{name}", Source.SELF_REFLECTION, 0.9,
+                                      f"I moved {src} → {dst}")
         self.trace.append(
             "act",
             "outcome",
