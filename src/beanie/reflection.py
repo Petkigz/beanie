@@ -35,6 +35,48 @@ class Reflector(ABC):
     def reflect(self, episodes: list[Entry]) -> list[str]:
         """Distill episodes into store updates; returns notes."""
 
+    def gist(self, keep_recent: int = 20, threshold: int = 25) -> Optional[str]:
+        """Episodic compression (Domain B / R1.3): fold routine episodes.
+
+        Routine small talk beyond the recent window is folded into one gist
+        entry — the *detail* decays, the record that the exchange happened
+        survives. Returns the gist entry id, or None when nothing was due.
+        This is the mechanism that stops episodic memory from blowing up with
+        trivia while preserving the lessons reflection has already distilled.
+        """
+        episodes = self.memory.episodes.all()
+        older = episodes[: max(0, len(episodes) - keep_recent)]
+        routine = [
+            e for e in older
+            if not e.content.get("compressed")
+            and not e.content.get("was_correction")
+            and not e.content.get("directive")
+            and not e.content.get("plan_failed")
+            and e.content.get("success") is True
+            and str(e.content.get("reply", "")).startswith("Received")
+        ]
+        if len(routine) < threshold:
+            return None
+        first, last = routine[0], routine[-1]
+        gist_text = (
+            f"{len(routine)} routine exchanges (acknowledgments and small talk) "
+            f"between {first.created_at} and {last.created_at}; nothing durable recorded in them."
+        )
+        gist = Entry(
+            id=self.memory.allocate_id(),
+            kind=RecordKind.EPISODE,
+            content={"type": "gist", "text": gist_text, "compressed_episodes": [e.id for e in routine]},
+            source=Source.SELF_REFLECTION,
+            confidence=0.9,
+        )
+        self.memory.episodes.append(gist)
+        for episode in routine:
+            episode.content["compressed"] = gist.id
+            episode.content["reply"] = "compressed (routine)"
+            episode.revise(f"routine detail folded into gist {gist.id}", observe=False)
+        self.memory.episodes.save_all()
+        return gist.id
+
     def consolidate(self) -> dict[str, Any]:
         """Build/refresh the identity summary from accumulated history (T7).
 

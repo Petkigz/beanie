@@ -146,6 +146,7 @@ class Mind:
         self.executor = PlanExecutor(self.body, self.gate, self.learner, self.memory)
         self.simulator = Simulator(self.body)
         self.attention = NoveltyDetector(self.state_dir / "sandbox")
+        self.last_observed_reminders: list[str] = []
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
@@ -416,8 +417,14 @@ class Mind:
         """
         notes: dict[str, Any] = {
             "reminders": [], "stale": [], "incubation_revisits": [],
-            "reflection": [], "preferences": [], "curiosity": [],
+            "reflection": [], "preferences": [], "curiosity": [], "gists": [],
         }
+
+        # episodic compression (Domain B / R1.3): routine detail folds away
+        gist_id = self.reflector.gist()
+        if gist_id is not None:
+            notes["gists"].append(gist_id)
+            self.trace.append("bg", "gist", {"gist_id": gist_id})
 
         # T4 implicit discovery: repeated corrections may propose a preference
         for proposal in self.preferences.mine_implicit(self.episodes.all()):
@@ -515,6 +522,10 @@ class Mind:
             elif event["kind"] == "remove":
                 self._forget_location(name, f"observed {event['path']} disappear")
             self.trace.append("perception", "perception", {"event": event})
+        # conditional intentions: "remind me when X appears" (Domain B/§3.7)
+        self.last_observed_reminders = self.intentions.check_conditional(events)
+        for reminder in self.last_observed_reminders:
+            self.trace.append("perception", "intention", {"conditional_fired": reminder})
         return events
 
     # ======================================================================
@@ -534,6 +545,12 @@ class Mind:
     def confirm_skill(self, skill_id: str) -> Entry:
         """Owner says yes — the proposed rule is ratified (§6 interaction)."""
         entry = self.learner.confirm(skill_id)
+        # loop closure: an unknown-goal question is resolved by the new skill
+        resolved = self.curiosity.resolve_open_questions(
+            str(entry.content.get("goal_class", "")), entry.id, "a skill now covers this goal class"
+        )
+        if resolved:
+            self.trace.append("demo", "learning", {"skill_id": skill_id, "resolved_questions": resolved})
         self._log_learning_episode(
             user_text=f"confirmed skill {entry.content.get('title', skill_id)}",
             content={"skill_confirmed": True, "rule": entry.content.get("mapping", {}), "skill_id": entry.id},
@@ -621,7 +638,8 @@ class Mind:
             subject, predicate, obj = fact.group(1).strip(), fact.group(2).lower(), fact.group(3).strip()
             content = {"type": "fact", "subject": subject.lower(), "predicate": predicate, "object": obj}
         else:
-            content = {"type": "fact", "subject": statement.lower()[:80], "predicate": "described_by", "object": statement}
+            subject = statement.lower()[:80]
+            content = {"type": "fact", "subject": subject, "predicate": "described_by", "object": statement}
         entry = Entry(
             id=self.memory.allocate_id(),
             kind=RecordKind.SEMANTIC,
@@ -631,12 +649,16 @@ class Mind:
         )
         report = self.engine.ingest(self.memory, entry)
         self.memory.semantic.append(entry)
+        # loop closure: evidence arriving can resolve open questions (T5)
+        resolved = self.curiosity.resolve_open_questions(subject, entry.id, "a fact is now on record")
         questions: tuple[str, ...] = ()
         text = "Remembered."
         if report.note:
             text = f"Remembered. {report.note}"
         if report.ask_owner:
             questions = ("I've updated my record to the newer statement — is that right?",)
+        if resolved:
+            self.trace.append(turn_id, "memory", {"entry_id": entry.id, "resolved_questions": resolved})
         self.trace.append(turn_id, "memory", {"entry_id": entry.id, "report": report.__dict__})
         episode = self._record_episode(
             turn_id, text, entry.confidence, True, None,

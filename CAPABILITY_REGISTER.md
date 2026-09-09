@@ -161,3 +161,7 @@ substrate or longitudinal history (VISION §5: no row earns 2–3 without eviden
 | 34 (teaching) | 1 | "how do you organize X" explains the confirmed rule in plain terms, naming its origin (your demonstration, confirmed by you) — tests passing |
 | 40 (consistency) | 1 | Consistency probe test: identical input → identical reply text + label on the deterministic substrate |
 | T7 (identity) | 1 (data probe) | Executable probe: two histories → measurably different identity summaries traceable to corrections/skills vs preferences, same code, same prompts |
+| 3 (gisting) | 1 | Routine episodic detail folds into gist entries on the background budget (Reflector.gist in tick; keep_recent window + threshold); lessons survive, trivia decays — tests passing |
+| 5 (conditional) | 1 | Conditional prospective memory: "remind me when X appears in Y" fires when observation events match; checked on every observe() pass — tests passing |
+| T5 (loop closure) | 1 | Open questions resolve when evidence arrives: facts stored or skills confirmed close matching gaps with evidence refs (never linger forever) — tests passing |
+| T8 (measurement) | 1 | calibration_report(): per-label accuracy over trace outcomes; suite prints the aggregated calibration table each run (labels vs outcomes) — tests passing |

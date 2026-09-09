@@ -6,9 +6,12 @@ the store against every perception and turn — Domain B prospective memory).
 Intentions that die silently (owner said "never mind") are logged as
 revisions, not ghosts.
 
-Two trigger kinds: turn-count ("remind me in 3 turns/messages to …") and
-wall-clock ("remind me tomorrow at 09:00 / in 30 minutes to …"). Firing is
-checked by Mind.tick() and after every step.
+Trigger kinds: turn-count ("remind me in 3 turns/messages to …"), wall-clock
+("remind me tomorrow at 09:00 / in 30 minutes to …"), and *conditional*
+("remind me when report.pdf appears in downloads") — the conditional fires
+when an observation event matches, which Mind.observe() checks. Turn-count
+firing is checked after every step; wall-clock and conditional firing in
+Mind.tick() and Mind.observe().
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from .records import Entry, RecordKind, Source, Volatility
@@ -27,6 +31,18 @@ _TURN_RE = re.compile(r"^\s*remind\s+me\s+in\s+(\d+)\s+(?:turns?|messages?|steps
 _MINUTE_RE = re.compile(r"^\s*remind\s+me\s+in\s+(\d+)\s+minutes?\s+to\s+(.+?)\s*\.?\s*$", re.IGNORECASE)
 _HOUR_RE = re.compile(r"^\s*remind\s+me\s+in\s+(\d+)\s+hours?\s+to\s+(.+?)\s*\.?\s*$", re.IGNORECASE)
 _TOMORROW_RE = re.compile(r"^\s*remind\s+me\s+tomorrow\s+at\s+(\d{1,2}):(\d{2})\s+to\s+(.+?)\s*\.?\s*$", re.IGNORECASE)
+_WHEN_APPEARS_RE = re.compile(
+    r"^\s*remind\s+me\s+when\s+(?P<file>[\w.\- ]+?)\s+"
+    r"(?:appears|shows?\s+up|arrives|is\s+(?:created|added|seen|detected|present))"
+    r"\s+(?:in|to|under|at)\s+(?P<dir>[\w./\-]+?)(?=\s+(?:to|and)\b|\s*\.?\s*$)"
+    r"\s*(?P<action>.*?)\s*\.?\s*$",
+    re.IGNORECASE,
+)
+_ACTION_LEAD = re.compile(r"^\s*(?:to|and|so\s+i\s+can)\s+", re.IGNORECASE)
+
+
+def _clean_action(action: str) -> str:
+    return _ACTION_LEAD.sub("", action).strip()
 _CANCEL_RE = re.compile(r"^\s*(?:cancel|forget|never\s+mind(?:\s+the)?)\s+(?:the\s+)?(?:reminder|intention)?\s*(?:about\s+)?(.+?)\s*\.?\s*$", re.IGNORECASE)
 
 
@@ -34,11 +50,20 @@ _CANCEL_RE = re.compile(r"^\s*(?:cancel|forget|never\s+mind(?:\s+the)?)\s+(?:the
 class ParsedIntention:
     action: str
     in_turns: Optional[int] = None
-    due_at: Optional[str] = None  # ISO-8601
+    due_at: Optional[str] = None     # ISO-8601
+    trigger_file: Optional[str] = None
+    trigger_dir: Optional[str] = None
 
 
 def parse(text: str, now: Optional[str] = None) -> Optional[ParsedIntention]:
     """Parse owner "remind me …" statements into an intention (§3.7)."""
+    match = _WHEN_APPEARS_RE.match(text)
+    if match:
+        return ParsedIntention(
+            action=_clean_action(match.group("action")) or f"note {match.group('file').strip()} arrived",
+            trigger_file=match.group("file").strip(),
+            trigger_dir=match.group("dir").strip().lower(),
+        )
     match = _TURN_RE.match(text)
     if match:
         return ParsedIntention(action=match.group(2).strip(), in_turns=int(match.group(1)))
@@ -76,6 +101,8 @@ class IntentionKeeper:
                 "status": "pending",
                 "in_turns": parsed.in_turns,
                 "due_at": parsed.due_at,
+                "trigger_file": parsed.trigger_file,
+                "trigger_dir": parsed.trigger_dir,
                 "origin_turn": origin_turn,
             },
             source=Source.OWNER,
@@ -118,6 +145,27 @@ class IntentionKeeper:
         entry.revise(f"reminder fired: {action}", confidence=1.0)
         self.memory.intentions.save_all()
         return action
+
+    def check_conditional(self, events: list[dict]) -> list[str]:
+        """Fire pending conditional intentions matched by observation events.
+
+        Each event carries a path (e.g. {"kind": "add", "path":
+        "downloads/report.pdf"}); an intention "when <file> appears in <dir>"
+        fires when a path under <dir> has basename == <file> (Domain B / §3.7).
+        """
+        fired_texts: list[str] = []
+        for entry in self.pending():
+            trigger_file = entry.content.get("trigger_file")
+            trigger_dir = str(entry.content.get("trigger_dir", "")).lower().rstrip("/")
+            if not trigger_file or not trigger_dir:
+                continue
+            for event in events:
+                path = str(event.get("path", ""))
+                if path.lower().startswith(trigger_dir + "/") or path.lower() == trigger_dir:
+                    if Path(path).name.lower() == trigger_file.lower():
+                        fired_texts.append(self.fire(entry))
+                        break
+        return fired_texts
 
     def cancel_matching(self, text: str) -> Optional[Entry]:
         """Owner says never mind → cancel with a revision, not a ghost (§3.7)."""

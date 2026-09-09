@@ -47,6 +47,37 @@ class Scenario:
         return cls(id=data.get("id", path.stem), description=data.get("description", ""), turns=turns)
 
 
+def calibration_report(events: list) -> dict[str, dict]:
+    """T8 self-audit: how well did each confidence label predict success?
+
+    Reads trace outcome events (each carries a label and a success/failure
+    verdict) and buckets them: per label — count, failures, and accuracy.
+    This is the executable half of VISION T8: labels must *predict* outcomes
+    better than an unlabeled baseline; the report surfaces when "highly
+    confident" stops beating "speculative" (miscalibration to act on).
+    """
+    from collections import defaultdict
+
+    buckets: dict[str, dict] = {}
+    counts: dict[str, list[bool]] = defaultdict(list)
+    for event in events:
+        kind = getattr(event, "kind", event.get("kind") if isinstance(event, dict) else None)
+        if kind != "outcome":
+            continue
+        payload = event.payload if not isinstance(event, dict) else event
+        label = str(payload.get("label", "")) or "unlabeled"
+        success = bool(payload.get("success", False))
+        counts[label].append(success)
+    for label, outcomes in counts.items():
+        failures = sum(1 for ok in outcomes if not ok)
+        buckets[label] = {
+            "n": len(outcomes),
+            "failures": failures,
+            "accuracy": round((len(outcomes) - failures) / len(outcomes), 3),
+        }
+    return dict(sorted(buckets.items(), key=lambda kv: kv[1]["n"], reverse=True))
+
+
 @dataclass
 class ScenarioResult:
     scenario_id: str
@@ -54,6 +85,7 @@ class ScenarioResult:
     failed_turns: int = 0
     failures: list[dict] = field(default_factory=list)
     trace_failures: dict[str, int] = field(default_factory=dict)
+    calibration: dict[str, dict] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -67,6 +99,7 @@ class ScenarioResult:
             "failed_turns": self.failed_turns,
             "failures": self.failures,
             "trace_failures": self.trace_failures,
+            "calibration": self.calibration,
         }
 
 
@@ -101,6 +134,7 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
         else:
             result.passed_turns += 1
     result.trace_failures = mind.trace.failures_by_kind()
+    result.calibration = calibration_report(mind.trace.events)
     return result
 
 
@@ -130,6 +164,18 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
             print(f"      expected '{failure['expected']}' in reply, got: {failure['actual']!r} [{failure['label']}]")
     print(f"\nSuite summary: {len(results) - failed}/{len(results)} scenarios passed.")
     payload = [r.to_dict() for r in results]
+    # T8 self-audit: aggregated label calibration across the run
+    merged: dict[str, dict] = {}
+    for row in payload:
+        for label, stats in row.get("calibration", {}).items():
+            bucket = merged.setdefault(label, {"n": 0, "failures": 0})
+            bucket["n"] += stats["n"]
+            bucket["failures"] += stats["failures"]
+    if merged:
+        print("\nCalibration (labels vs outcomes, T8):")
+        for label, stats in sorted(merged.items(), key=lambda kv: -kv[1]["n"]):
+            accuracy = round((stats["n"] - stats["failures"]) / stats["n"], 3)
+            print(f"  {label:<18} n={stats['n']:<3} failures={stats['failures']:<3} accuracy={accuracy}")
     if out_path is not None:
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if track_dir is not None:

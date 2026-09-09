@@ -47,7 +47,7 @@ src/beanie/
   planning.py     goal→skill→plan→verify→repair + incubation (§4.8, T3); target folder inferred from goal wording (§7)
   simulate.py     virtual replay of the body: predict_goal + "what if I moved X to Y", body never touched (rows 10–11)
   mind.py         location facts + "where is X?" world-model answers (row 11); teaches rules on "how do you organize X" (row 34)
-  intention.py    prospective memory (§3.7)
+  intention.py    prospective memory: turn-count, wall-clock + conditional "when X appears" (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
   explain.py      explanation service, auditable, on demand (§4.5/T10)
   cognition.py    effort allocation, devil's advocate, curiosity gaps (§4.6/4.7)
@@ -55,11 +55,11 @@ src/beanie/
   substrate.py    fast/deep tier interface + deterministic test double (§2)
   substrate_http.py  optional OpenAI-compatible real model tier (§2)
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner (§8)
+  measure.py      longitudinal suite runner; delta vs previous run; T8 calibration table
   cli.py          REPL window into the mind
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           four longitudinal scenarios (skeleton, directives, beliefs, preferences)
-tests/            70 tests incl. the conformance drift guard + T-test battery
+tests/            78 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

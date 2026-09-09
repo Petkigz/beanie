@@ -88,3 +88,24 @@ class Curiosity:
         )
         self.memory.self_model.append(entry)
         return entry
+
+    def resolve_open_questions(self, subject: str, evidence_id: str, note: str) -> list[str]:
+        """Close open questions about `subject` when evidence has arrived.
+
+        The knowledge loop must close: a question stays open only while no
+        evidence exists; when a fact about its subject is stored, matching
+        questions are resolved with a reference to the evidence (T5 → the
+        curiosity drive is satisfied by learning, not left dangling forever).
+        """
+        tokens = {t for t in re.findall(r"[a-z0-9]{3,}", subject.lower()) if not t.isdigit()}
+        resolved: list[str] = []
+        for question in self.memory.query(kind="self", type="question", status="open"):
+            qtext = f"{question.content.get('subject', '')} {question.content.get('text', '')}".lower()
+            if tokens & {t for t in re.findall(r"[a-z0-9]{3,}", qtext) if not t.isdigit()}:
+                question.content["status"] = "resolved"
+                question.content["resolved_by"] = evidence_id
+                question.revise(f"resolved by evidence {evidence_id}: {note}", confidence=0.9)
+                resolved.append(question.id)
+        if resolved:
+            self.memory.self_model.save_all()
+        return resolved
