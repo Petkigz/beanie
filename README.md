@@ -62,14 +62,15 @@ src/beanie/
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           22 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority, policy…
-tests/            107 tests incl. the conformance drift guard + T-test battery
+tests/            108 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it
 
 ```bash
 make setup test      # recreate .venv if needed, then run all tests
-make demo            # end-to-end demo of the mind
+make demo            # end-to-end demo: teaching→transfer, introspection, Q13 caveat,
+                     # usefulness ratings, idle investigation, policy adaptation, Q15 transfer
 make suite           # longitudinal suite; archives each run under results/ and prints the delta vs the previous run (Q31)
 make repl            # talk to a mind that persists in .beanie_state/
 # manual equivalents:

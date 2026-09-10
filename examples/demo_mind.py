@@ -89,4 +89,68 @@ say("no, jpg files go into photos/")
 print("\n=== reminders fire ===")
 say("ok back to work")
 
+# 8. world model + conditional prospective memory (§3.7 / row 11)
+print("\n=== world model & conditional reminders (§3.7 / row 11) ===")
+mind.body.run("write_file", {"path": "downloads/contract.pdf", "text": "signed copy"})
+mind.observe()  # baseline: the mind notes where things are
+say("remind me when budget.xlsx appears in downloads to flag it for review")
+mind.body.run("write_file", {"path": "downloads/budget.xlsx", "text": "q3 numbers"})
+observed = mind.observe()
+print(f"  observe saw: {[event['path'] for event in observed]}")
+print(f"  conditional reminder fired: {list(mind.last_observed_reminders)}")
+say("where is contract.pdf?")
+
+# 9. self-model introspection (row 35)
+print("\n=== introspection (row 35) ===")
+say("what are you unsure about?")
+say("what can you do?")
+say("tell me about yourself")
+
+# 10. honest low confidence (Q13)
+print("\n=== honest low confidence (Q13) ===")
+say("the deployment status is missing")
+say("wait, that's wrong about the deployment")
+say("no, that's wrong about the deployment")
+say("that's not right about the deployment")
+say("tell me about the deployment status")
+
+# 11. explicit usefulness feedback (T13)
+print("\n=== usefulness feedback (T13) ===")
+say("that was useful")
+
+# 12. idle curiosity investigates the environment (row 21)
+print("\n=== idle curiosity (row 21) ===")
+mind.body.run("write_file", {"path": "notes/deployment.md", "text": "the deployment pipeline is green"})
+for _ in range(2):  # oldest gap first, then the deployment gap (one per budget)
+    for item in mind.tick()["curiosity"]:
+        print(f"  idle budget: {item}")
+say("remember that the deployment status is green")  # real evidence resolves the gap
+print("  open questions left:",
+      len(mind.memory.query(kind="self", type="question", status="open")))
+
+# 13. effort policy adapts to outcomes (T13 / §4.6)
+print("\n=== effort policy (T13 / §4.6) ===")
+print(f"  reflex word budget before: {mind.policy.word_limit}")
+for phrase in ["make it ambiguous", "that contradicts", "tool-error now"] * 3:
+    mind.step(phrase)  # short, failing reflex-class turns
+notes = mind.tick()
+print(f"  policy note: {notes['policy'] or 'no adjustment due'}")
+print(f"  reflex word budget after:  {mind.policy.word_limit}")
+
+# 14. knowledge transfer to a fresh mind (Q15)
+print("\n=== knowledge transfer (Q15) ===")
+child = Mind(state_dir=STATE.parent / f"{STATE.name}-child", authority="allow")
+counts = child.import_knowledge(mind.export_knowledge())
+print(f"  fresh mind imported: {counts}")
+child.body.run("mkdir", {"dir": "docs"})
+child.body.run("mkdir", {"dir": "images"})
+child.body.run("mkdir", {"dir": "handoff"})
+child.body.run("write_file", {"path": "handoff/quarterly.pdf", "text": "q"})
+child.body.run("write_file", {"path": "handoff/raw-notes.txt", "text": "n"})
+outcome = child.perform_goal("organize downloads", base_dir="handoff")
+print(f"  fresh mind performed the taught goal: {outcome.outcome}")
+moved = child.body.run("snapshot")["tree"]
+print(f"  pdf went to docs/: {'docs/quarterly.pdf' in moved}")
+print(f"  unmapped .txt untouched: {'handoff/raw-notes.txt' in moved}")
+
 print("\ndemo complete — the mind persists at:", STATE)
