@@ -438,7 +438,7 @@ Module → spec map: `records` §3 envelope · `stores` §3.1–3.7 · `belief` 
 the body, never touching it) · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
 `cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1 (incl. relevance-aware recall,
 row 7, and the owner-belief layer, row 33) · `searchindex` §11.2 · `streaming` §11.2 ·
-`decision` §11.1 · `automation` §11.3 · `android` §11.5 · `voice` §11.6 · `webui` §11.7 · `research` §11.1 (learning sources).
+`decision` §11.1 · `automation` §11.3 · `accessibility` §11.3 · `android` §11.5 · `voice` §11.6 · `webui` §11.7 · `research` §11.1 (learning sources).
 
 Honesty ledger — what is *not* yet true: the default substrate is a documented test double
 (real tiers plug in via `HTTPSubstrate`; LM Studio is the intended local server — keyless,

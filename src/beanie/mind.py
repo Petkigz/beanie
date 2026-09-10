@@ -1740,6 +1740,34 @@ class Mind:
     def _execute_system_need(self, turn_id: str, text: str, need: Need) -> Reply:
         """System-changing needs: command preview first, authority always (§5, §11.4)."""
         target = need.target.strip()
+        resolved_note = ""
+        alternatives: list[str] = []
+        resolution_failed = False
+        body_for_search = self._os_body()
+        if need.kind in ("install_app", "uninstall_app") and body_for_search is not None:
+            # §11.4: a wording is a lookup, not a command — resolve the real id
+            # first; the ask and the run name the id the machine will act on
+            search = getattr(body_for_search, "search_package", None)
+            candidates: list[dict[str, str]] = []
+            search_probe = False
+            if callable(search):
+                search_probe = True
+                candidates = search(target)
+            if candidates:
+                resolved = candidates[0]
+                alternatives = [c["id"] for c in candidates[1:4]]
+                if resolved["id"].lower() != target.lower():
+                    resolved_note = (f"Resolved '{target}' → {resolved['id']} ({resolved['label']})"
+                                     + (f"; also matching: {', '.join(alternatives)}."
+                                        if alternatives else "."))
+                target = resolved["id"]
+            elif search_probe:
+                # zero candidates FROM A REAL SEARCH blocks auto-execution
+                # (nothing to aim at) — but a body that cannot search cannot
+                # disprove an id, so only actual search misses flag failure
+                resolution_failed = True
+                resolved_note = (f"Note: no exact package id matched '{target}' in the manager's "
+                                 f"search results.")
         if need.kind in ("install_app", "uninstall_app"):
             args: dict[str, Any] = {"package": target}
         elif need.kind == "shell":
@@ -1756,7 +1784,21 @@ class Mind:
         else:
             preview = OSBody(dry_run=True).run(need.kind, args)["would_run"]
             verdict, question = self._capability_permission(turn_id, need.kind, target)
-            if verdict == "act":
+            if verdict == "act" and resolution_failed:
+                reply_text = (f"No package matched '{target}' in this machine's package manager — "
+                              f"nothing was installed, nothing was guessed. Give me the exact id "
+                              f"and I'll ask with the exact command.")
+                confidence = 0.85
+                self.trace.append(turn_id, "body", {"op": need.kind, "target": target,
+                                                    "resolved": None, "decision": need.to_dict()})
+                episode = self._record_episode(
+                    turn_id, reply_text, confidence, True, None,
+                    extra={"user_text": text, "directive": need.kind, "decision": need.to_dict(),
+                           "resolved": None})
+                return Reply(text=reply_text, confidence=confidence,
+                             confidence_label=confidence_label(confidence), turn_id=turn_id,
+                             success=True, record_id=episode.id)
+            elif verdict == "act":
                 try:
                     result = body.run(need.kind, args)
                 except BodyError as exc:
@@ -1779,10 +1821,15 @@ class Mind:
             else:
                 reply_text = f"This would run: {preview}. {question}"
                 confidence = 0.85
-        self.trace.append(turn_id, "body", {"op": need.kind, "target": target, "decision": need.to_dict()})
+        if resolved_note:
+            reply_text = resolved_note + " " + reply_text
+        self.trace.append(turn_id, "body", {"op": need.kind, "target": target,
+                                            "decision": need.to_dict(),
+                                            "resolved_alternatives": alternatives})
         episode = self._record_episode(
             turn_id, reply_text, confidence, True, None,
-            extra={"user_text": text, "directive": need.kind, "decision": need.to_dict()})
+            extra={"user_text": text, "directive": need.kind, "decision": need.to_dict(),
+                   "resolved": target, "resolved_alternatives": alternatives})
         return Reply(text=reply_text, confidence=confidence,
                      confidence_label=confidence_label(confidence), turn_id=turn_id,
                      success=True, record_id=episode.id)

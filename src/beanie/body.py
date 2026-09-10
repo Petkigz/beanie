@@ -141,6 +141,54 @@ class SandboxBody:
 # Real OS body (opt-in only)
 # --------------------------------------------------------------------------
 
+def parse_winget_results(output: str) -> list[dict[str, str]]:
+    """winget search output → [{id, label}] — the machine id, not the wording."""
+    found: list[dict[str, str]] = []
+    for line in output.splitlines():
+        if not line.strip() or line.lstrip().startswith(("-", "Name")):
+            continue
+        parts = line.split()
+        if len(parts) >= 3 and "." in parts[-3] if False else False:
+            pass
+        # heuristics: the id is a token containing a dot; the label is what precedes it
+        tokens = line.split()
+        for index, token in enumerate(tokens):
+            if "." in token and not token.startswith(".") and any(ch.isalpha() for ch in token):
+                if index == 0:
+                    continue
+                label = " ".join(tokens[:index])
+                if label:
+                    found.append({"id": token, "label": label})
+                break
+    return found
+
+
+def parse_apt_results(output: str) -> list[dict[str, str]]:
+    """apt-cache search output: 'pkg/suite version arch' + indented description."""
+    found: list[dict[str, str]] = []
+    pending: dict[str, str] = {}
+    for line in output.splitlines():
+        if line and not line[0].isspace() and "/" in line:
+            if pending:
+                found.append(pending)
+            package = line.split("/", 1)[0].strip()
+            pending = {"id": package, "label": package}
+        elif pending and line.strip():
+            pending["label"] = f"{pending['id']} — {line.strip()}"
+        elif not line.strip() and pending:
+            found.append(pending)
+            pending = {}
+    if pending:
+        found.append(pending)
+    return found
+
+
+def parse_brew_results(output: str) -> list[dict[str, str]]:
+    """brew search: plain name-per-line."""
+    return [{"id": name.strip(), "label": name.strip()}
+            for name in output.splitlines() if name.strip()]
+
+
 class OSBody:
     """Real-machine body — constructed only when BEANIE_BODY_OS=1 (§7, §9.5, §11.4).
 
@@ -197,6 +245,34 @@ class OSBody:
             "macos": ["brew", "uninstall", package],
             "linux": ["sudo", "apt-get", "remove", "-y", package],
         }[self._platform()]
+
+    def _probe_output(self, command: list[str]) -> str:
+        """Read-only probe (package search): never in dry-run output, never mutating."""
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)  # noqa: S603
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return result.stdout if result.returncode == 0 else ""
+
+    def search_package(self, query: str) -> list[dict[str, str]]:
+        """Resolve a wording to real package ids before anything installs (§11.4).
+
+        Read-only: searches are how the owner sees what WOULD be installed —
+        winget/brew/apt-cache output parsed to [{id, label}], first [0..5].
+        A manager that answers nothing yields an honest empty list.
+        """
+        platform = self._platform()
+        if platform == "windows":
+            raw = self._probe_output(["winget", "search", "--accept-source-agreements", query])
+            return parse_winget_results(raw)[:6]
+        if platform == "macos":
+            raw = self._probe_output(["brew", "search", f"/{query.split()[0]}/i"])
+            return parse_brew_results(raw)[:6]
+        raw = self._probe_output(["apt-cache", "search", "--names-only", query.split()[0]])
+        if not raw:
+            # names-only narrows too hard with spaces; plain search is the fallback
+            raw = self._probe_output(["apt-cache", "search", query])
+        return parse_apt_results(raw)[:6]
 
     def _open_command(self, target: str, *, url: bool = False) -> list[str]:
         """Open a file/URL with the system default handler (the OS picks the app)."""
