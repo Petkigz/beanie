@@ -219,7 +219,8 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
             )
             haystacks.append(json.dumps(
                 {"outcome": performed.outcome, "steps": performed.actions_done,
-                 "permission": performed.permission_phrase}
+                 "permission": performed.permission_phrase,
+                 "permission_question": performed.permission_question}
             ))
         elif "body" in turn:
             body_call = turn["body"]

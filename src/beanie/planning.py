@@ -41,6 +41,7 @@ class PlanResult:
     mapping: dict[str, str] = field(default_factory=dict)  # ext -> destination
     outcome: str = "not_run"     # success | failed | needs_permission
     permission_phrase: Optional[str] = None
+    permission_question: Optional[str] = None  # the ask the owner should hear (§5)
     failure_taxonomy: Optional[str] = None
     repairs: int = 0
     last_result: Optional[dict[str, Any]] = None

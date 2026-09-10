@@ -59,14 +59,15 @@ src/beanie/
   substrate.py    fast/deep tier interface + deterministic test double (§2)
   substrate_http.py  optional OpenAI-compatible real model tier (§2)
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 22 tasks, action turns, register + score
+  measure.py      longitudinal suite runner: 23 tasks, action turns, register + score
                   snapshots, trailing-30-day window report (suite delta, register movement,
                   VISION §5 level movement, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` / --tick runs the idle budget
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
-suites/           22 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
-                  learning/transfer, world model, prospective memory, introspection, authority, policy…
-tests/            116 tests incl. the conformance drift guard + T-test battery
+suites/           23 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
+                  learning/transfer, world model, prospective memory, introspection, authority
+                  (gating + growing autonomy), policy, idle curiosity, consistency…
+tests/            120 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

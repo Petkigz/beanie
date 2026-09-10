@@ -163,7 +163,7 @@ still gated on the model substrate.
 | 25, 26 | 1 | Self-initiated triggers via tick/observe; tool chaining in plans (sense → act → verify) |
 | 27 | 1 (text) / 0 | Text tier + perception episodes; vision/audio encoders are model-gated |
 | 28 | 1 (sandbox) | Durations and cause/effect bounded by the sandbox; consequence checks via simulation + authority gate; real-world grounding awaits body opt-in |
-| 29 | 1 | Four-state authority gate; granted rules accumulate with provenance; a denied capability blocks a learned plan with its phrase (§5 test passing) |
+| 29 | 1 | Four-state authority gate; granted rules accumulate with provenance; a blocked plan becomes one counted, owner-facing permission request (surfaced once, escalating wording on repeats) that an owner statement answers — and an explicit deny is respected without nagging (§5 tests passing) |
 | 30 | 1 | Calibrated labels on every reply from the evidence state (T8 test passing) |
 | 31 | 1 | Correction channel with strategy revision (T9) |
 | 32 | 1 | Explanation service, auditable, plain language, on demand (T10 test passing) |
@@ -180,5 +180,5 @@ still gated on the model substrate.
 | T13 | 1 | EffortPolicy adapts the reflex budget on failures, low ratings and abandonment, persists changes with reasons, and survives restarts |
 | Q13 | 1 | A successful answer the evidence does not back (<0.55 calibrated) carries an explicit caveat and opens a recorded residual gap |
 | Q15 / R2.15 | 1 | `export_knowledge()` / `import_knowledge()` transfer confirmed skills, facts and preferences between minds without sharing episodes; the receiving mind performs the taught goal |
-| Q31 / §8 | 1 | Longitudinal suite of 22 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
+| Q31 / §8 | 1 | Longitudinal suite of 23 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
 | §8 signals | 1 | Explicit rating, correction, follow-up and abandonment all recorded per turn; the suite prints ratings by label and implicit signal counts |

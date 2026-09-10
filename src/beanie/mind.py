@@ -96,6 +96,15 @@ _SIGNAL_STOPWORDS = frozenset({
 })
 
 
+def _ordinal(number: int) -> str:
+    """2 → '2nd', 3 → '3rd' — small honest wording, not '2th'."""
+    if 10 <= number % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
 def _signal_tokens(text: str) -> set[str]:
     """Content words used to judge whether a turn follows up on the last one."""
     return {w for w in re.findall(r"[a-z0-9_\.]+", text.lower()) if w not in _SIGNAL_STOPWORDS and len(w) > 2}
@@ -251,7 +260,10 @@ class Mind:
         if authority_rule is not None:
             capability, action = authority_rule
             rule = self.gate.grant(capability, action)
-            self.trace.append(turn_id, "authority", {"capability": capability, "action": action, "rule_id": rule.id})
+            resolved = self._resolve_permission_requests(turn_id, capability, action)
+            self.trace.append(turn_id, "authority",
+                              {"capability": capability, "action": action, "rule_id": rule.id,
+                               "resolved_requests": resolved})
             phrase = {
                 "allow": "I may do that now.",
                 "deny": "I won't do that.",
@@ -794,6 +806,10 @@ class Mind:
             },
             failure=FailureTaxonomy(result.failure_taxonomy) if result.failure_taxonomy and result.failure_taxonomy in FailureTaxonomy._value2member_map_ else None,
         )
+        if result.outcome == "needs_permission":
+            question = self._note_permission_need(goal, result)
+            if question:
+                result.permission_question = question
         if result.outcome == "failed" or result.outcome == "needs_information":
             self._log_learning_episode(
                 user_text=goal,
@@ -812,6 +828,93 @@ class Mind:
         from .calibration import UsefulnessTracker
 
         UsefulnessTracker().rate(self.trace, turn_id, score, note)
+
+    def _resolve_permission_requests(self, turn_id: str, capability: str, action: str) -> list[str]:
+        """An authority statement answers any standing request for it (§5)."""
+        resolved: list[str] = []
+        for entry in self.memory.query(kind="owner_model", type="permission_request", capability=capability):
+            if entry.content.get("status") != "pending":
+                continue
+            entry.content["status"] = "answered"
+            entry.content["answer"] = action
+            entry.revise(f"owner answered: {capability} → {action}", confidence=0.95)
+            resolved.append(entry.id)
+        if resolved:
+            self.memory.owner_model.save_all()
+            self.trace.append(turn_id, "authority", {"requests_answered": resolved, "action": action})
+        return resolved
+
+    def _note_permission_need(self, goal: str, result: PlanResult) -> str:
+        """Turn a permission wall into an explicit, counted, non-nagging ask (§5).
+
+        Row 29 (growing autonomy): when a plan stops because the mind does not
+        know whether it is allowed, that is a question for the owner, not a
+        silent failure. The need is recorded with a count so repeated walls
+        become one standing request instead of repeated asks — and an explicit
+        deny is respected: nothing is proposed again for that capability.
+        """
+        capability = str((result.last_result or {}).get("capability", "")) or "?"
+        permission = self.gate.check(capability)
+        if permission.state == "not_allowed":
+            # the owner already decided; ask nothing, just log the wall
+            self.trace.append("act", "authority",
+                              {"blocked": capability, "goal": goal, "state": permission.state})
+            return ""
+        existing = [
+            e for e in self.memory.query(kind="owner_model", type="permission_request", capability=capability)
+            if e.content.get("status") == "pending"
+        ]
+        if existing:
+            entry = existing[-1]
+            entry.content["count"] = int(entry.content.get("count", 1)) + 1
+            entry.content["last_goal"] = goal
+            entry.revise(f"asked again about {capability} ({entry.content['count']}x)", confidence=0.8)
+            self.memory.owner_model.save_all()
+            count = entry.content["count"]
+        else:
+            entry = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.OWNER_MODEL,
+                content={"type": "permission_request", "capability": capability, "status": "pending",
+                         "count": 1, "first_goal": goal, "last_goal": goal},
+                source=Source.SELF_REFLECTION,
+                confidence=0.8,
+            )
+            self.memory.owner_model.append(entry)
+            count = 1
+        self.trace.append("act", "authority",
+                          {"permission_request": capability, "count": count, "goal": goal})
+        if count == 1:
+            return (f"To do this I'd need permission for {capability} — say 'you may {capability}' "
+                    f"to allow it, or 'never use {capability}' to rule it out.")
+        return (f"This is the {_ordinal(count)} time I've needed {capability}. If you like, a standing rule "
+                f"('you may {capability}') would save you the trip — otherwise I'll keep asking.")
+
+    def pending_permission_requests(self) -> list[dict[str, Any]]:
+        """Standing permission questions the owner has not answered yet (§5)."""
+        return [
+            {"capability": e.content.get("capability"), "count": e.content.get("count"),
+             "request_id": e.id}
+            for e in self.memory.query(kind="owner_model", type="permission_request", status="pending")
+        ]
+
+    def _surface_permission_request(self, turn_id: str) -> str:
+        """Ask an unanswered standing request once, on the next ordinary turn (§5)."""
+        for entry in self.memory.query(kind="owner_model", type="permission_request", status="pending"):
+            if entry.content.get("surfaced_at"):
+                continue
+            entry.content["surfaced_at"] = utcnow_iso()
+            entry.revise("standing request surfaced to the owner", observe=False)
+            self.memory.owner_model.save_all()
+            capability = str(entry.content.get("capability", "?"))
+            count = int(entry.content.get("count", 1))
+            self.trace.append(turn_id, "authority", {"surfaced_request": capability, "count": count})
+            if count == 1:
+                return (f"I still need permission for {capability} — 'you may {capability}' allows it, "
+                        f"'never use {capability}' rules it out.")
+            return (f"I've needed {capability} {_ordinal(count)} times now; a standing rule would help — "
+                    f"'you may {capability}' or 'never use {capability}'.")
+        return ""
 
     def _surface_idle_finding(self, turn_id: str) -> str:
         """Bring an idle investigation's finding to the owner once (row 20/21).
@@ -1149,7 +1252,7 @@ class Mind:
 
         self._last_turn_record = episode.id
         self.state.save(self.state_dir / "mind_state.json")
-        surfaced = self._surface_idle_finding(turn_id)
+        surfaced = self._surface_idle_finding(turn_id) or self._surface_permission_request(turn_id)
         return Reply(
             text=reply_text,
             confidence=confidence,
