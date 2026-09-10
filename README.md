@@ -16,6 +16,25 @@ behavior, and identity grow out of its own experience and history.
 | [CAPABILITY_REGISTER.md](./CAPABILITY_REGISTER.md) | The running audit: every capability scored 0–3, with the mechanism scorecard |
 | [REMAINING.md](./REMAINING.md) | What is left, and exactly what opens each remaining gate (the model tier, calendar time) |
 
+## Why this over a bare chat model (LM Studio, ChatGPT, …)
+
+A chat model is a *stateless oracle*: brilliant per message, amnesiac across messages.
+Beanie is what sits **around** the model and turns one into something like an assistant
+you actually live with. Everything below is executable in this repo — not a pitch:
+
+| Without the shell (bare LLM) | With Beanie |
+|---|---|
+| Forgets you between sessions | Owner model, episodes, meetings, decisions and answers persist; `what did we decide about X` answers weeks later |
+| You must do the research | `research …` / `learn about …` reads the live web (dated, kept separate from memory), verifies against a witness network, archives the topic |
+| Can't touch your machine | Opt-in organ lattice: index your files/music/`everything`-style search, play media by name, install with the **resolved package id**, GUI navigation clicking real named buttons — all behind graded permission |
+| Asks nothing about risk | Every dangerous capability asks **once**, previews the exact command, stores your rule; denied capabilities are refused by rule-cite, forever |
+| No way to audit | Every turn writes a trace; any answer can be cross-examined (`explanations --audit` cross-checks them against the recorded reason) |
+| Same skill at day 100 as day 1 | Demonstrations become confirmed skills; failed goals auto-park in the incubator; weekly reflection proposes candidates; usefulness ratings steer the calibration |
+| One window | CLI, WebUI (phone-ready voice in/out, one-tap Allow/Never), Termux-friendly, an Android WebView shell, adb limb |
+
+The point of the `CAPABILITY_REGISTER.md` is that none of the right-hand column is
+aspirational: every line cites its test (or says plainly *"level 2 needs live evidence"*).
+
 ## How the code is kept from drifting away from the vision
 
 1. **Traceability is mechanical.** Every module's docstring cites the `ARCHITECTURE §`
@@ -107,7 +126,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            255 tests incl. the conformance drift guard + T-test battery
+tests/            257 tests incl. the conformance drift guard + T-test battery
 android_app/      Android companion WebView shell (KOTLIN; see its README: built by
                   Android Studio on the owner's machine, honest about sandbox limits)
 ```

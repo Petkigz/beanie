@@ -132,3 +132,53 @@ def test_organ_status_is_a_honest_seating_chart(tmp_path, monkeypatch):
     monkeypatch.setenv("BEANIE_BODY_OS", "1")
     mind2 = Mind(state_dir=tmp_path / "state2")
     assert mind2.organ_status()["os_body"]["on"] is True
+
+
+def test_organ_status_marks_a_configured_but_dead_model_tier_unreachable(tmp_path, monkeypatch):
+    """Row 35: seated-but-down is a different problem than not-configured —
+    the chart must distinguish them (a staged LM Studio that isn't running is
+    the most common first-run trap on the owner's machine)."""
+    from beanie.substrate_http import HTTPSubstrate
+
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    monkeypatch.delenv("BEANIE_AUTOMATION", raising=False)
+    substrate = HTTPSubstrate(base_url="http://127.0.0.1:9")   # nothing can listen there
+    mind = Mind(substrate=substrate, state_dir=tmp_path / "state")
+    status = mind.organ_status()["model_tier"]
+    assert status["on"] is False
+    assert "UNREACHABLE" in status["detail"]
+    assert "LM Studio" in status["switch"]
+
+
+def test_organ_status_marks_a_live_model_tier_reachable(tmp_path, monkeypatch):
+    import json as _json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from beanie.substrate_http import HTTPSubstrate
+
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    monkeypatch.delenv("BEANIE_AUTOMATION", raising=False)
+
+    class _Models(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            body = _json.dumps({"data": [{"id": "local-model"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Models)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        substrate = HTTPSubstrate(base_url=f"http://127.0.0.1:{server.server_address[1]}")
+        mind = Mind(substrate=substrate, state_dir=tmp_path / "state")
+        status = mind.organ_status()["model_tier"]
+        assert status["on"] is True
+        assert "reachable" in status["detail"]
+    finally:
+        server.shutdown()
+        server.server_close()

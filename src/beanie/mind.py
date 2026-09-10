@@ -213,6 +213,20 @@ class Reply:
         }
 
 
+def _probe_model_endpoint(base_url: str, timeout: float = 1.5) -> bool:
+    """One cheap liveness probe against an OpenAI-compatible /v1 root (§11 row 35):
+    LM Studio and friends answer GET /models; anything else counts as down."""
+    import urllib.error
+    import urllib.request
+
+    url = base_url.rstrip("/") + "/models"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
 class Mind:
     """One continuous mind: loop, stores, behaviors, body, persistence."""
 
@@ -1166,11 +1180,23 @@ class Mind:
         except ImportError:
             gui_lib = False
         adb_ready = bool(os.environ.get("BEANIE_ANDROID") == "1" and shutil.which("adb"))
+        model_on = self.substrate.name != "stub"
+        model_detail = self.substrate.name
+        model_switch = "export BEANIE_MODEL_URL=http://localhost:1234/v1   (LM Studio's server)"
+        if model_on and hasattr(self.substrate, "base_url"):
+            # a seated-but-down tier is a different problem with a different
+            # fix — the chart shows reachability, not just configuration
+            reachable = _probe_model_endpoint(str(self.substrate.base_url))
+            model_detail = (f"{self.substrate.name} @ {self.substrate.base_url} "
+                            f"({'reachable' if reachable else 'UNREACHABLE — is LM Studio serving?'})")
+            if not reachable:
+                model_on = False
+                model_switch = "LM Studio → Developer tab → Status: Running (then re-run --status)"
         return {
             "model_tier": {
-                "on": self.substrate.name != "stub",
-                "detail": self.substrate.name,
-                "switch": "export BEANIE_MODEL_URL=http://localhost:1234/v1   (LM Studio's server)",
+                "on": model_on,
+                "detail": model_detail,
+                "switch": model_switch,
             },
             "os_body": {
                 "on": self._os_body() is not None,
