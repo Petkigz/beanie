@@ -65,15 +65,15 @@ src/beanie/
                   candidate passed to the deep tier; exercised against a local mock
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
   measure.py      longitudinal suite runner: 24 tasks, action turns, register + score
-                  snapshots, trailing-30-day window report (suite delta, register movement,
-                  VISION §5 level movement, calibration, usefulness)
+                  snapshots, trailing-window report (suite delta, register + level movement,
+                  stagnation prompt, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
                   the configured model tier
 Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            142 tests incl. the conformance drift guard + T-test battery
+tests/            144 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)

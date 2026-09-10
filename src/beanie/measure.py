@@ -360,6 +360,42 @@ def score_movement(previous: dict[int, int], current: dict[int, int]) -> list[di
     ]
 
 
+def stagnant_rows(score_snapshots: list[dict[int, int]], reviews: int = 3, level: int = 1) -> list[int]:
+    """Rows sitting at `level` across the last `reviews` readings, unmoved.
+
+    CAPABILITY_REGISTER.md's own rule: "a row that stays at 1 for three reviews
+    is either not real yet or not worth building — say which." This finds them
+    so the reviewer has to answer, instead of the rule quietly not applying.
+    """
+    recent = score_snapshots[-reviews:] if reviews > 0 else list(score_snapshots)
+    if len(recent) < reviews:
+        return []
+    rows = set(recent[0])
+    for snapshot in recent[1:]:
+        rows &= set(snapshot)
+    return sorted(
+        row for row in rows
+        if all(snapshot[row] == level for snapshot in recent)
+    )
+
+
+def print_stagnation(score_snapshots: list[dict[int, int]], reviews: int = 3) -> list[int]:
+    """The register's 'say which' rule, as a printed prompt."""
+    stagnant = stagnant_rows(score_snapshots, reviews=reviews)
+    if not stagnant:
+        if len(score_snapshots) >= reviews:
+            print(f"  stagnation check: no row has sat at level 1 for {reviews} reviews")
+        else:
+            print(f"  stagnation check: needs {reviews} reviews on record "
+                  f"({len(score_snapshots)} so far — keep running `make verify` weekly)")
+        return []
+    print(f"  stagnation check: {len(stagnant)} row(s) at level 1 for {reviews} reviews — "
+          f"say which (not real yet / not worth building):")
+    print("    " + ", ".join(str(row) for row in stagnant[:24]) + (" …" if len(stagnant) > 24 else ""))
+    print("    (answers belong in the register's stagnation ledger)")
+    return stagnant
+
+
 def print_score_composition(scores: dict[int, int]) -> None:
     """The register's headline number: how many rows sit at each level today."""
     if not scores:
@@ -527,6 +563,16 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
               f"passed turns {entry['first_passed_turns']} → {entry['last_passed_turns']} {arrow}")
     print("  register movement in window:")
     _print_register_movement(report.get("register_movement", []))
+    # the register's rule counts *reviews*, not window days: use every archived
+    # score snapshot on record
+    history: list[dict[int, int]] = []
+    for path in sidecar_files(track_dir, ".scores.json"):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            history.append({int(k): int(v) for k, v in raw.items()})
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+    print_stagnation(history)
     levels = report.get("score_movement", [])
     if levels:
         print("  register score movement (VISION §5 levels):")
@@ -617,6 +663,14 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         if scores:
             (track_dir / f"{run_id}.scores.json").write_text(json.dumps(scores, indent=2), encoding="utf-8")
             print_score_composition(scores)
+            history: list[dict[int, int]] = []
+            for path in sidecar_files(track_dir, ".scores.json"):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    history.append({int(k): int(v) for k, v in raw.items()})
+                except (json.JSONDecodeError, OSError, ValueError):
+                    continue
+            print_stagnation(history)
         previous = run_files(track_dir)
         if len(previous) >= 2:  # newest is this run
             with previous[-2].open(encoding="utf-8") as fh:

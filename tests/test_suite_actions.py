@@ -275,3 +275,48 @@ def test_score_movement_is_tracked_between_runs(tmp_path, capsys):
     report = window_report(track, days=30)
     assert report["score_movement"] == [{"row": 17, "from": 0, "to": 1}]
     assert score_movement({1: 1, 2: 0}, {1: 1, 2: 1}) == [{"row": 2, "from": 0, "to": 1}]
+
+
+def test_stagnation_check_names_rows_stuck_at_level_one(tmp_path):
+    """The register's own rule: three reviews at level 1 → say which."""
+    from beanie.measure import print_stagnation, stagnant_rows
+
+    # fewer than three reviews: the check is honest that it cannot judge yet
+    assert stagnant_rows([{1: 1, 2: 1}, {1: 1, 2: 1}], reviews=3) == []
+
+    history = [{1: 1, 2: 1, 3: 0}, {1: 1, 2: 1, 3: 0}, {1: 1, 2: 1, 3: 0}]
+    assert stagnant_rows(history, reviews=3) == [1, 2]  # level 0 rows are not "stagnant"
+    # a row that moved is not stagnant, even if it ends at the same level
+    moved = [{1: 0, 2: 1, 3: 1}, {1: 1, 2: 1, 3: 1}, {1: 1, 2: 1, 3: 1}]
+    assert stagnant_rows(moved, reviews=3) == [2, 3]
+
+    printed = print_stagnation(history, reviews=3)
+    assert printed == [1, 2]
+
+
+def test_window_report_prints_the_stagnation_prompt(tmp_path, capsys):
+    import json
+
+    from beanie.measure import run_suite, window_report
+
+    suite_dir = tmp_path / "suite"
+    suite_dir.mkdir()
+    (suite_dir / "one.json").write_text(json.dumps({
+        "id": "one", "description": "", "turns": [{"user": "hello", "expect": "received"}],
+    }), encoding="utf-8")
+    register = tmp_path / "CAPABILITY_REGISTER.md"
+    register.write_text(
+        "## Mechanism scorecard\n\n| Row(s) | Verdict |\n|---|---|\n| 1 | 1 |\n\n"
+        "## Capability table\n\n| # | Cap | Kind | Evidence | Stage | Score |\n"
+        "|---|---|---|---|---|---|\n| 1 | memory | store | working | 0 | 1 |\n",
+        encoding="utf-8",
+    )
+    track = tmp_path / "track"
+    for run_number in range(3):
+        run_suite(suite_dir, tmp_path / f"s{run_number}", track_dir=track, register_path=register)
+
+    out = capsys.readouterr().out
+    assert "stagnation check: 1 row(s) at level 1 for 3 reviews" in out
+    assert "say which" in out
+    report = window_report(track, days=30)
+    assert report["runs"] == 3
