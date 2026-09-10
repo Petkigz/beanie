@@ -82,6 +82,13 @@ _BELIEF_RE = re.compile(
     re.IGNORECASE,
 )
 #: owner statements that start a correction (ARCHITECTURE §4.4)
+# overseer insight on demand (brief #7 / §5): the day's activity and the live work queue
+_OVERSEER_DIGEST_RE = re.compile(
+    r"^\s*what did (you|we) do\s+(today|yesterday)\s*[.?!]*\s*$", re.IGNORECASE)
+_WORKING_ON_RE = re.compile(
+    r"^\s*(what are you working on|what are we working on|what(?:'s| is) on (your|the) plate|"
+    r"what have you been (doing|working on))\s*[.?!]*\s*$", re.IGNORECASE)
+
 # resuming a paused takeover: "continue" → the paused goal gets another budget
 _GUI_CONTINUE_RE = re.compile(
     r"^\s*(?:please\s+)?(continue(?:\s+that|\s+the\s+task)?|keep\s+going|go\s+on)\s*[.!?]*\s*$",
@@ -494,6 +501,16 @@ class Mind:
             self._record_episode(turn_id, reply.text, 0.9, False, None,
                                  extra={"user_text": text, "outcome": "nothing_paused"})
             return reply
+
+        # 11b.7) overseer insight on demand: the day's activity and the live
+        # queue come from the record itself (§5 brief #7) — inventory, or none
+        digest_match = _OVERSEER_DIGEST_RE.match(text)
+        if digest_match:
+            self._organ_hint = "the overseer digest (§5) — today's record, counted"
+            return self._overseer_digest(turn_id, text, digest_match.group(2).lower())
+        if _WORKING_ON_RE.match(text):
+            self._organ_hint = "the overseer digest (§5) — the live work queue"
+            return self._working_on_report(turn_id, text)
 
         # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
@@ -1437,6 +1454,69 @@ class Mind:
             text=text, confidence=entry.confidence, confidence_label=confidence_label(entry.confidence),
             turn_id=turn_id, success=True, record_id=episode.id, questions=questions,
         )
+
+    def _overseer_digest(self, turn_id: str, text: str, which: str) -> Reply:
+        """'what did we do today?' — count the day from the trace, not from memory (§5).
+
+        The trace is the authoritative record of WHAT HAPPENED; an empty day is
+        an honest "nothing happened", never a gap papered over.
+        """
+        import collections
+        import datetime as _dt
+
+        day = _dt.date.today() if which == "today" else _dt.date.today() - _dt.timedelta(days=1)
+        counts = collections.Counter(
+            event.kind for event in self.trace.events if event.at.startswith(day.isoformat()))
+        if not counts:
+            body = (f"I have nothing on record for {day.isoformat()} — no turns, no decisions, "
+                    f"no actions. The trace covers every turn, so that means nothing happened, "
+                    f"not that something is hidden.")
+            self._record_episode(turn_id, body, 0.9, True, None,
+                                 extra={"user_text": text, "digest_day": day.isoformat(), "events": 0})
+            return Reply(text=body, confidence=0.9, confidence_label=confidence_label(0.9),
+                         turn_id=turn_id, success=True)
+        parts = [f"{count} {kind}" + ("s" if count != 1 and not kind.endswith("s") else "")
+                 for kind, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+        total = sum(counts.values())
+        body = (f"{day.isoformat()} so far, from the trace — {total} event{'s' if total != 1 else ''}: "
+                + ", ".join(parts)
+                + ". Every one of those is a recorded, auditable line (explanations available on ask).")
+        self._record_episode(turn_id, body, 0.9, True, None,
+                             extra={"user_text": text, "digest_day": day.isoformat(),
+                                    "events": total, "kinds": dict(counts)})
+        return Reply(text=body, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True)
+
+    def _working_on_report(self, turn_id: str, text: str) -> Reply:
+        """'what are you working on?' — the live queue, by name (§5 brief #7).
+
+        Live means: permission asks awaiting your rule, a paused takeover,
+        parked incubator problems. None of these is ever fabricated or hidden;
+        an empty queue is stated as empty.
+        """
+        live: list[str] = []
+        for ask in self.pending_permission_requests():
+            live.append(f"a permission ask for {ask['capability']} ×{ask['count']} — "
+                        f"'you may {ask['capability']}' allows it")
+        if self._gui_paused is not None:
+            goal, _note = self._gui_paused
+            live.append(f"a paused GUI takeover: '{goal}' — 'continue' resumes it")
+        parked = self.memory.query(kind="self", type="open_problem", status="parked")
+        for entry in parked[:3]:
+            live.append(f"a parked problem: '{str(entry.content.get('problem', '?'))[:60]}' "
+                        f"(incubator; it resurfaces when new evidence arrives)")
+        if not live:
+            body = ("Nothing live and nothing pending — no unanswered permission asks, no paused "
+                    "takeover, no parked problems. Idle budget ticks are the only background work.")
+            self._record_episode(turn_id, body, 0.9, True, None,
+                                 extra={"user_text": text, "live": 0})
+            return Reply(text=body, confidence=0.9, confidence_label=confidence_label(0.9),
+                         turn_id=turn_id, success=True)
+        body = "Live on the queue: " + "; ".join(live) + "."
+        self._record_episode(turn_id, body, 0.9, True, None,
+                             extra={"user_text": text, "live": len(live)})
+        return Reply(text=body, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True)
 
     def _gui_driver(self) -> Any:
         if self._gui_driver_override is not None:
