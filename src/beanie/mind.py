@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .affect import AffectObserver
+from .analogy import CATEGORY_LABEL, demonstrated_categories
 from .attention import NoveltyDetector
 from .belief import ContradictionEngine, DecayMonitor
 from .body import AuthorityGate, BodyError, SandboxBody, parse_authority_statement
@@ -531,8 +532,14 @@ class Mind:
         mapping = dict(skill.content.get("mapping", {}))
         parts = [f"{'.' + ext if '.' not in ext else ext} files → {dst}" for ext, dst in mapping.items()]
         body = "; ".join(parts) if parts else "I don't have a fixed mapping yet"
+        lifted = demonstrated_categories(mapping)
+        analogy_note = ""
+        if lifted:
+            kinds = " and ".join(sorted(CATEGORY_LABEL.get(c, c) for c in lifted))
+            analogy_note = (f" I also apply the same idea to other {kinds} files you never showed me, "
+                            f"because your demonstration placed that kind of thing there.")
         reply_text = (f"Here's how I {skill.content.get('goal_class', 'do it')}: {body}. "
-                      f"I learned this from your demonstration and you confirmed it.")
+                      f"I learned this from your demonstration and you confirmed it.{analogy_note}")
         episode = self._record_episode(
             turn_id, reply_text, 0.9, True, None,
             extra={"user_text": text, "directive": "teach", "skill_id": skill.id, "reply": reply_text},
@@ -837,6 +844,16 @@ class Mind:
             },
             failure=FailureTaxonomy(result.failure_taxonomy) if result.failure_taxonomy and result.failure_taxonomy in FailureTaxonomy._value2member_map_ else None,
         )
+        if result.inferred:
+            self.trace.append("act", "analogy", {"goal": goal, "inferred": result.inferred})
+        if result.unmapped:
+            # honesty (T5/T6): a kind the demonstration never covered is a gap,
+            # not a licence to guess where the owner's files go
+            kinds = ", ".join(sorted({f".{entry['extension']}" for entry in result.unmapped}))
+            self.curiosity.open_question(
+                goal[:60], f"I don't know where {kinds} files belong — demonstrate once and I'll learn it"
+            )
+            self.trace.append("act", "analogy", {"goal": goal, "unmapped": result.unmapped})
         if result.outcome == "needs_permission":
             question = self._note_permission_need(goal, result)
             if question:

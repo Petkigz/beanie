@@ -68,7 +68,7 @@ mind.confirm_skill(proposal.skill_id)
 print("  you: yes")
 
 # 5. perform in a NEW context — transfer
-new_files = {"new/report.pdf": "r", "new/pic.jpg": "p", "new/meme.png": "m"}
+new_files = {"new/report.pdf": "r", "new/pic.jpg": "p", "new/meme.png": "m", "new/theme.mp3": "s"}
 for path, text in new_files.items():
     mind.body.run("write_file", {"path": path, "text": text})
 for directory in ("docs", "images"):
@@ -79,7 +79,8 @@ print(f"  plan outcome: {result.outcome} (repairs: {result.repairs})")
 tree = mind.body.run("snapshot")["tree"]
 print(f"  docs/   has: {sorted(k for k in tree if k.startswith('docs/'))}")
 print(f"  images/ has: {sorted(k for k in tree if k.startswith('images/'))}")
-print(f"  unmapped untouched: {'new/meme.png' in tree}")
+print(f"  .png never demonstrated, inferred by analogy: {'images/meme.png' in tree}")
+print(f"  unmapped category untouched: {'new/theme.mp3' in tree}")
 
 # 6. correction → strategy revision (T9)
 print("\n=== correction (T9) ===")
@@ -121,9 +122,12 @@ say("that was useful")
 # 12. idle curiosity investigates the environment (row 21)
 print("\n=== idle curiosity (row 21) ===")
 mind.body.run("write_file", {"path": "notes/deployment.md", "text": "the deployment pipeline is green"})
-for _ in range(2):  # oldest gap first, then the deployment gap (one per budget)
-    for item in mind.tick()["curiosity"]:
+for _ in range(6):  # one gap per budget, oldest first, until the budget is drained
+    curiosity = mind.tick()["curiosity"]
+    for item in curiosity:
         print(f"  idle budget: {item}")
+    if not curiosity:
+        break
 say("remember that the deployment status is green")  # real evidence resolves the gap
 print("  open questions left:",
       len(mind.memory.query(kind="self", type="question", status="open")))
@@ -151,11 +155,11 @@ child.body.run("mkdir", {"dir": "docs"})
 child.body.run("mkdir", {"dir": "images"})
 child.body.run("mkdir", {"dir": "handoff"})
 child.body.run("write_file", {"path": "handoff/quarterly.pdf", "text": "q"})
-child.body.run("write_file", {"path": "handoff/raw-notes.txt", "text": "n"})
+child.body.run("write_file", {"path": "handoff/clip.mov", "text": "v"})
 outcome = child.perform_goal("organize downloads", base_dir="handoff")
 print(f"  fresh mind performed the taught goal: {outcome.outcome}")
 moved = child.body.run("snapshot")["tree"]
 print(f"  pdf went to docs/: {'docs/quarterly.pdf' in moved}")
-print(f"  unmapped .txt untouched: {'handoff/raw-notes.txt' in moved}")
+print(f"  never-demonstrated category untouched: {'handoff/clip.mov' in moved}")
 
 print("\ndemo complete — the mind persists at:", STATE)

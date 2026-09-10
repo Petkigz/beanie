@@ -13,7 +13,8 @@ def test_demo_runs_and_shows_the_mechanisms():
     out = proc.stdout
     markers = [
         "=== demonstration (T1) ===",          # teach once, transfer
-        "unmapped untouched: True",             # honesty: only what was taught
+        "inferred by analogy: True",            # T6: unseen kinds of a shown category
+        "unmapped category untouched: True",    # honesty: unknown kinds are refused
         "=== introspection (row 35) ===",       # self-model answers
         "not fully confident",                  # Q13 caveat
         "=== usefulness feedback (T13) ===",    # explicit rating
@@ -24,7 +25,7 @@ def test_demo_runs_and_shows_the_mechanisms():
         "You sound frustrated",                 # observation acted on
         "observations, not guesses",            # cited read-back
         "fresh mind performed the taught goal: success",  # Q15 transfer
-        "unmapped .txt untouched: True",
+        "never-demonstrated category untouched: True",
     ]
     for marker in markers:
         assert marker in out, f"demo output lost: {marker}"

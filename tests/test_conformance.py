@@ -93,3 +93,24 @@ def test_scorecard_suite_count_matches_reality():
     assert int(match.group(1)) == actual, (
         f"scorecard says {match.group(1)} tasks, suites/ holds {actual}"
     )
+
+
+def test_register_header_score_claim_matches_the_table():
+    """The stated composition is the headline number — it must equal the table."""
+    text = (ROOT / "CAPABILITY_REGISTER.md").read_text(encoding="utf-8")
+    claims = {int(level): int(count) for count, level in re.findall(
+        r"(\d+) rows at level (\d+)", text
+    )}
+    assert claims, "the register no longer states its current score composition"
+    actual: dict[int, int] = {}
+    for line in text.splitlines():
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) == 6 and cells[0].isdigit() and cells[5].isdigit():
+            level = int(cells[5])
+            actual[level] = actual.get(level, 0) + 1
+    for level, claimed in claims.items():
+        assert actual.get(level, 0) == claimed, (
+            f"header claims {claimed} rows at level {level}, table has {actual.get(level, 0)}"
+        )
+    # any level present in the table but absent from the claim is also a drift
+    assert set(actual) <= set(claims), f"levels not stated in the header: {set(actual) - set(claims)}"

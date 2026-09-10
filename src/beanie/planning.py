@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .body import AuthorityGate, BodyError, SandboxBody
+from .analogy import infer_destination
 from .learning import DemonstrationLearner
 from .records import Entry, RecordKind, Source, utcnow_iso
 from .stores import Memory
@@ -46,6 +47,8 @@ class PlanResult:
     repairs: int = 0
     last_result: Optional[dict[str, Any]] = None
     actions_done: list[dict[str, Any]] = field(default_factory=list)  # executed steps
+    inferred: list[dict[str, str]] = field(default_factory=list)   # analogy moves + reasons (T6)
+    unmapped: list[dict[str, str]] = field(default_factory=list)   # kinds refused, never guessed
 
 
 #: deterministic repairs for known failure modes — scaffolding until skills
@@ -150,6 +153,23 @@ class PlanExecutor:
                         f".{extension} files belong in {destination}",
                     )
                 )
+                continue
+            # T6/row 43: lift the demonstrated rule to kinds never demonstrated —
+            # only when the demonstration covered the same *category*, and always
+            # with the reason attached so the plan can show what it assumed
+            inferred_to, reason = infer_destination(plan.mapping, extension)
+            if inferred_to is not None:
+                concrete.append(
+                    PlanStep(
+                        "move_file",
+                        {"src": f"{base_dir}/{name}", "dst": inferred_to},
+                        reason,
+                    )
+                )
+                plan.inferred.append({"file": name, "extension": extension,
+                                      "destination": inferred_to, "reason": reason})
+            else:
+                plan.unmapped.append({"file": name, "extension": extension, "reason": reason})
         for step in plan.steps:
             if step.capability not in ("list_files", "move_file"):
                 concrete.append(step)

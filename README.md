@@ -46,6 +46,8 @@ src/beanie/
   learning.py     demonstration learning, confirmation, correction→strategy revision; family familiarity boosts later proposals (T1/T9, row 24)
   preferences.py  preference learning & implicit discovery (T4)
   policy.py       adaptive effort policy: reflex word-budget audited against outcomes each tick (T13/§4.6)
+  analogy.py      abstraction/analogy (T6/row 43): the demonstrated rule lifted from
+                  extensions to categories; unknown categories are refused, not guessed
   body.py         sandbox + opt-in OS body; four-state authority gate (§5/§7)
   planning.py     goal→skill→plan→verify→repair + incubation (§4.8, T3); target folder inferred from goal wording (§7)
   simulate.py     virtual replay of the body: predict_goal + "what if I moved X to Y", body never touched (rows 10–11)
@@ -69,7 +71,7 @@ Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            125 tests incl. the conformance drift guard + T-test battery
+tests/            131 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

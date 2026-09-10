@@ -1,6 +1,6 @@
 {
   "id": "demonstration_transfer",
-  "description": "One-demonstration learning with transfer (T1/row 22): the rule from a single demo runs on a folder of new files, unruly extensions untouched.",
+  "description": "One-demonstration learning with transfer + analogy (T1/T6, rows 22/43): the rule from a single demo runs on a folder of new files, carries to kinds never demonstrated (.png/.txt beside .pdf/.jpg), and refuses the category the demo never covered (.mp3) instead of guessing.",
   "authority": "allow",
   "setup": {
     "dirs": [
@@ -31,13 +31,14 @@
     {
       "files": {
         "downloads/statement.pdf": "y",
-        "downloads/readme.txt": "z"
+        "downloads/readme.md": "z",
+        "downloads/theme.mp3": "m"
       },
       "perform": {
         "goal": "organize files",
         "base_dir": "downloads"
       },
-      "expect": "success"
+      "expect": "inferred by analogy"
     },
     {
       "body": {
@@ -50,13 +51,29 @@
     },
     {
       "body": {
+        "capability": "read_file",
+        "args": {
+          "path": "docs/readme.md"
+        }
+      },
+      "expect": "readme.md"
+    },
+    {
+      "body": {
         "capability": "list_files",
         "args": {
           "dir": "downloads"
         }
       },
-      "expect": "readme.txt",
+      "expect": "theme.mp3",
       "expect_absent": "statement.pdf"
+    },
+    {
+      "query": {
+        "kind": "self",
+        "type": "question"
+      },
+      "expect": ".mp3"
     }
   ]
 }

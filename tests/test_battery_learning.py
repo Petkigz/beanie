@@ -51,8 +51,10 @@ def test_t1_learns_from_one_demonstration_and_transfers(tmp_path):
     assert ".jpg → images" in proposal.confirm_question
     mind.confirm_skill(proposal.skill_id)
 
-    # NEW folder, different files, including an unmapped extension (transfer)
-    _seed(mind.body, {"downloads2/report.pdf": "r", "downloads2/pic.jpg": "p", "downloads2/meme.png": "m"})
+    # NEW folder, different files: one kind never demonstrated of a *demonstrated*
+    # category (T6 analogy) and one of a category the demo never covered (honest gap)
+    _seed(mind.body, {"downloads2/report.pdf": "r", "downloads2/pic.jpg": "p",
+                      "downloads2/meme.png": "m", "downloads2/song.mp3": "s"})
     mind.body.run("mkdir", {"dir": "docs"})
     mind.body.run("mkdir", {"dir": "images"})
 
@@ -61,8 +63,15 @@ def test_t1_learns_from_one_demonstration_and_transfers(tmp_path):
     tree = mind.body.run("snapshot")["tree"]
     assert "docs/report.pdf" in tree
     assert "images/pic.jpg" in tree
-    assert "downloads2/meme.png" in tree  # unmapped → untouched, honest
-    # the skill learned nothing it did not see in the demo
+    # T6/row 43: .png is an image kind like the demonstrated .jpg → inferred
+    assert "images/meme.png" in tree
+    assert any(i["extension"] == "png" for i in result.inferred)
+    assert "inferred by analogy" in result.inferred[0]["reason"]
+    # a category the demonstration never covered is left alone and asked about
+    assert "downloads2/song.mp3" in tree
+    assert [u["extension"] for u in result.unmapped] == ["mp3"]
+    assert mind.memory.query(kind="self", type="question", status="open")
+    # the stored skill still holds only what the owner actually showed
     skill = mind.memory.find(result.skill_id)
     assert set(skill.content["mapping"]) == {"pdf", "jpg"}
 
@@ -140,12 +149,12 @@ def test_goal_target_dir_inferred_from_phrasing(tmp_path):
     mind.confirm_skill(proposal.skill_id)
 
     # a fresh folder the mind has never seen named in the goal
-    _seed(mind.body, {"library/report.pdf": "r", "library/pic.jpg": "j"})
+    _seed(mind.body, {"library/report.pdf": "r", "library/archive.zip": "z"})
     result = mind.perform_goal("organize the library folder")  # no base_dir passed
     assert result.outcome == "success", result
     tree = mind.body.run("snapshot")["tree"]
     assert "docs/report.pdf" in tree
-    assert "library/pic.jpg" in tree  # unmapped extension untouched
+    assert "library/archive.zip" in tree  # category never demonstrated → untouched
 
     # explicit folder phrase also respected
     _seed(mind.body, {"archive/notes.pdf": "n"})

@@ -237,8 +237,8 @@ def test_register_scores_match_the_scorecard(tmp_path):
             elif part.isdigit():
                 verdicts.setdefault(int(part), verdict)
 
-    assert len(scores) == 42, "every capability row 1–42 must carry a score"
-    for row in range(1, 43):
+    assert len(scores) == len(verdicts), "every register row must carry a score"
+    for row in sorted(verdicts):
         verdict = verdicts[row]
         expected = 1 if verdict.startswith("1") else 0
         assert scores[row] == expected, f"row {row}: score {scores[row]} vs verdict {verdict!r}"

@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import re
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -220,7 +221,8 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
             haystacks.append(json.dumps(
                 {"outcome": performed.outcome, "steps": performed.actions_done,
                  "permission": performed.permission_phrase,
-                 "permission_question": performed.permission_question}
+                 "permission_question": performed.permission_question,
+                 "inferred": performed.inferred, "unmapped": performed.unmapped}
             ))
         elif "body" in turn:
             body_call = turn["body"]
@@ -308,8 +310,13 @@ def scorecard_snapshot(register_path: Path) -> dict[str, str]:
             continue
         for part in cells[0].split(","):
             key = part.strip().lstrip("#")
-            if key:
-                snapshot[key] = cells[1]
+            if not key:
+                continue
+            if "–" not in key:
+                leading = re.match(r"(\d+)", key)
+                if leading:  # "43 (T6 analogy)" is row 43
+                    key = leading.group(1)
+            snapshot[key] = cells[1]
     return snapshot
 
 

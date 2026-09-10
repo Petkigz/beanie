@@ -16,7 +16,7 @@ up the scale, and the roadmap stage it lands in.
 actually reached today; **Stage** is the roadmap stage the row is planned into (they are
 different columns and a row can legitimately be scored 1 while staged 4).
 
-*Current scores (2026-09-10):* **40 rows at level 1, 2 rows at level 0, none above 1.**
+*Current scores (2026-09-10):* **41 rows at level 1, 2 rows at level 0, 0 rows above level 1.**
 Level 1 means "a deterministic mechanism is in place and tested" — by this scale's own
 definition that is *hardcoded/scripted, not emergent*. Levels 2–3 require the capability
 to show up spontaneously and then reliably, which needs a real model substrate **and**
@@ -103,6 +103,7 @@ say which.
 | 40 | Eval/benchmark + consistency tracking (R2.8) | Measurement | Same question twice → same answer; suite scores trend up | 0 | 1 |
 | 41 | Contradiction in the record: uncertainty/contradiction events counted (R1.2) | Measurement | Count of T2 events per week, not zero — an honest system doubts | 1 | 1 |
 | 42 | Preference discovery — from statements *and* history, adopted or confirmed (VISION T4) | Behavior (§6 → owner model) | Explicit "I prefer X over Y" learned; repeated same-topic corrections yield a *proposed* preference that only explicit owner confirmation activates | 2→4 | 1 |
+| 43 | Domain-general abstraction — a rule learned in one domain applied, unchanged, in a structurally similar one it has never seen (VISION T6, R2.15) | Behavior (§4.1 planning; §7 body) | T6: "group by type" demonstrated on documents/images carries to file kinds never demonstrated (`.png` beside `.jpg`), while categories the demo never covered are refused and asked about instead of guessed | 4 | 1 |
 
 ---
 
@@ -182,3 +183,4 @@ still gated on the model substrate.
 | Q15 / R2.15 | 1 | `export_knowledge()` / `import_knowledge()` transfer confirmed skills, facts and preferences between minds without sharing episodes; the receiving mind performs the taught goal |
 | Q31 / §8 | 1 | Longitudinal suite of 24 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
 | §8 signals | 1 | Explicit rating, correction, follow-up and abandonment all recorded per turn; the suite prints ratings by label and implicit signal counts |
+| 43 (T6 analogy) | 1 (sandbox) | The demonstrated rule is lifted from extensions to *categories*: a mapping like `.pdf → docs`, `.jpg → images` generalizes to unseen kinds of the same category (`.png`, `.gif` → images, `.docx` → docs), each inferred move is labelled with its reason in the plan, and a category the demonstration never covered is reported as an unmapped gap and asked about instead of guessed — tests passing; structurally different domains (non-file work) still need the model tier |
