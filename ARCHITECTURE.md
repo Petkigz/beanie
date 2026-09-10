@@ -549,7 +549,11 @@ rather than faked.
 — both in the page, zero installs) and a tiny JSON API where `POST /api/step` runs
 the *same* `Mind.step` the CLI calls. Reminders, permission asks and state counters
 (open questions, pending permissions, skills, episodes) travel over the wire — a
-browser is a second face on one mind, never a parallel fake. `android_app/` is the
+browser is a second face on one mind, never a parallel fake. `/api/state` also serves
+the overseer instrument panel straight from the mind's own snapshot (`day_activity`,
+`work_queue`): today's trace count, pending asks rendered as Allow/Never buttons that
+speak the genuine grant sentences, and ⏸ chips for paused takeovers and parked incubator
+problems — the phone is an audit console, not just a chat window. `android_app/` is the
 Kotlin WebView companion (host field + runtime mic permission) that turns a phone into
 that window on the LAN; this sandbox cannot compile it and its README says so.
 
