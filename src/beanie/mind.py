@@ -31,6 +31,7 @@ from .affect import AffectObserver
 from .analogy import CATEGORY_LABEL, demonstrated_categories
 from .attention import NoveltyDetector
 from .belief import ContradictionEngine, DecayMonitor
+from .automation import Navigator, VirtualGUIDriver, default_driver
 from .body import AuthorityGate, BodyError, OSBody, SandboxBody, parse_authority_statement
 from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
@@ -81,6 +82,14 @@ _BELIEF_RE = re.compile(
     re.IGNORECASE,
 )
 #: owner statements that start a correction (ARCHITECTURE §4.4)
+# supervised GUI takeover: "log me in to github", "sign in to whatsapp", "automate this"
+_GUI_TASK_RE = re.compile(
+    r"^\s*(?:please\s+)?(log\s+me\s+in\s+to|log\s+in\s+to|sign\s+me\s+in\s+to|sign\s+in\s+to|"
+    r"automate(?:\s+this)?|take\s+over\s+and\s+do|navigate\s+to\s+and)\s+(?P<goal>.{3,}?)"
+    r"(?:\s+for\s+me)?\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
 _CORRECTION_RE = re.compile(
     r"^\s*(?:no|nope|wait|stop|wrong|not that|that'?s not right|that'?s wrong|that is wrong|that is not right)"
     r"(?:[,\-:]\s*|\s+)(.*)$",
@@ -260,6 +269,8 @@ class Mind:
         # the media trail (§11.2): last ranked matches + how far the owner has walked
         self._media_trail: Optional[tuple[list[Any], int]] = None
         self._media_trail_target = ""
+        self._gui_driver_override: Any = None      # tests/demos inject scripted limbs
+        self._gui_driver_cached: Any = None
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
@@ -434,6 +445,15 @@ class Mind:
         if _MEDIA_FOLLOW_RE.match(text) and self._media_trail is not None:
             self._organ_hint = "the media trail (§11.2) — the owner chose the next ranked match"
             return self._media_follow(turn_id)
+
+        # 11b.5) supervised GUI takeover: a spoken imperative becomes the
+        # navigator loop itself — eyes from the accessibility tree, one
+        # action per authority check, budgeted, outcome narrated honestly
+        gui_match = _GUI_TASK_RE.match(text)
+        if gui_match:
+            self._organ_hint = ("the supervised navigator (§11.3) — the request asked for a "
+                                "GUI takeover; the limb drove, the authority gate supervised")
+            return self._gui_takeover(turn_id, text, gui_match.group("goal").strip())
 
         # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
@@ -1365,6 +1385,83 @@ class Mind:
             text=text, confidence=entry.confidence, confidence_label=confidence_label(entry.confidence),
             turn_id=turn_id, success=True, record_id=episode.id, questions=questions,
         )
+
+    def _gui_driver(self) -> Any:
+        if self._gui_driver_override is not None:
+            return self._gui_driver_override
+        if self._gui_driver_cached is None:
+            self._gui_driver_cached = default_driver()
+        return self._gui_driver_cached
+
+    def _gui_takeover(self, turn_id: str, text: str, goal: str) -> Reply:
+        """'log me in to github' → the supervised navigator, right now (§11.3).
+
+        The sentence IS the task intake: eyes from the driver's screen text,
+        one action per authority check (Navigator runs every action through
+        the same capability gate), a bounded budget, and the outcome narrated
+        in the outcome's own words — never "done" when the loop merely stopped.
+        """
+        turn_goal = goal.strip()
+        driver = self._gui_driver()
+        if self._gui_driver_override is None and isinstance(driver, VirtualGUIDriver):
+            # no override: the default is virtual only because nothing real is seeded
+            reply = Reply(
+                text=(f"GUI control is not seated on this machine — right now my limb is the "
+                      f"test double, and the test double touches nothing real. Seat it: "
+                      f"BEANIE_AUTOMATION=1 plus pyautogui (pointer) and pyatspi/pywinauto "
+                      f"(named-target eyes), then say it again."),
+                confidence=0.85, confidence_label=confidence_label(0.85),
+                turn_id=turn_id, success=False)
+            self.trace.append(turn_id, "gui_takeover", {"goal": turn_goal[:80], "outcome": "unseated"})
+            self._record_episode(turn_id, reply.text, 0.85, False, None,
+                                 extra={"user_text": text, "goal": turn_goal[:120],
+                                        "outcome": "unseated"})
+            return reply
+        try:
+            screen = driver.read_screen()
+        except BodyError as exc:
+            reply = Reply(
+                text=(f"I can move a pointer here but I have no eyes: {exc}. Named-target "
+                      f"seeing needs the platform accessibility backend (pyatspi on Linux, "
+                      f"pywinauto on Windows) — I do not click blindly."),
+                confidence=0.8, confidence_label=confidence_label(0.8),
+                turn_id=turn_id, success=False)
+            self.trace.append(turn_id, "gui_takeover",
+                              {"goal": turn_goal[:80], "outcome": "no_eyes", "reason": str(exc)})
+            self._record_episode(turn_id, reply.text, 0.8, False, None,
+                                 extra={"user_text": text, "goal": turn_goal[:120],
+                                        "outcome": "no_eyes"})
+            return reply
+
+        gate = AuthorityGate(self.memory)
+        navigator = Navigator(driver, self.substrate, gate)
+        report = navigator.run(turn_goal)
+        action_count = len(report.steps)
+        outcome = report.outcome
+        if outcome == "needs_permission":
+            text_out = report.permission_question
+            confidence, ok = 0.9, False
+        elif outcome == "completed":
+            text_out, confidence, ok = (f"Done — '{turn_goal}' completed under supervision: "
+                                        f"{action_count} action{'s' if action_count != 1 else ''} "
+                                        f"({report.note}), every one logged in the trace."), 0.9, True
+        elif outcome == "budget":
+            text_out, confidence, ok = (f"'{turn_goal}' is not finished — the loop hit its budget "
+                                        f"after {action_count} action{'s' if action_count != 1 else ''} "
+                                        f"({report.note}). A paused task is not a done task; say "
+                                        f"'continue' to give it another budget."), 0.8, False
+        else:  # failed / unplannable
+            text_out, confidence, ok = (f"I could not complete '{turn_goal}' — {report.note}. "
+                                        f"The trace keeps exactly what was tried and what the "
+                                        f"screen said; nothing was guessed."), 0.8, False
+        self.trace.append(turn_id, "gui_takeover",
+                          {"goal": turn_goal[:80], "outcome": outcome, "actions": action_count,
+                           "note": report.note[:200]})
+        self._record_episode(turn_id, text_out, confidence, ok, None,
+                             extra={"user_text": text, "goal": turn_goal[:120],
+                                    "outcome": outcome, "actions": action_count})
+        return Reply(text=text_out, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id, success=ok)
 
     def _handle_correction(self, turn_id: str, full_text: str, remainder: str) -> Reply:
         """§4.4: classify, update, revise strategy, log learning episode."""

@@ -196,9 +196,22 @@ class Navigator:
 
 
 def default_driver() -> Any:
-    """The driver's sensible default: the real limb when the owner opts in,
-    the virtual limb otherwise — same interface either way."""
+    """The best limb this machine can actually offer, chosen at runtime.
+
+    Preference (§11.3): accessibility eyes + real pointer (named-target
+    clicking — the driver sees buttons by name) → pixel-only pyautogui →
+    the honest virtual double. Every falloff is a stated downgrade, never
+    silent.
+    """
     if os.environ.get("BEANIE_AUTOMATION") == "1":
+        try:
+            from .accessibility import ATGUIDriver, platform_backend
+
+            backend, _reason = platform_backend()
+            if backend is not None:
+                return ATGUIDriver(backend=backend)  # raises if the pointer can't seat
+        except RuntimeError:
+            pass  # pointer library present-but-displayless: fall through honestly
         try:
             return PyAutoGUIDriver()
         except RuntimeError:
