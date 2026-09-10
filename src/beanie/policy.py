@@ -46,12 +46,16 @@ class EffortPolicy:
         Reflex-class turns are (a) clean reflex answers (depth 'reflex', which
         never fail by construction) and (b) turns the fast tier flagged and
         the loop escalated to the deep tier (decision payload
-        'escalated_from': 'reflex'). When enough escalated turns end in a
-        failed outcome the reflex budget was too generous: it is tightened.
-        Long stretches with no reflex-class failures widen it again (bounded).
+        'escalated_from': 'reflex'). A reflex-class turn counts as a failure
+        when its outcome failed *or* the owner rated it poorly afterwards
+        (explicit usefulness feedback, ARCHITECTURE §8/T13 — cheap answers
+        that never fail by construction can still be wrong for the owner).
+        Enough failures tighten the reflex budget; long clean stretches widen
+        it again (bounded).
         """
         meta_by_turn: dict[str, dict] = {}
-        reflex_class: list[tuple[str, bool]] = []  # (turn_id, succeeded)
+        outcomes: dict[str, bool] = {}  # turn_id -> outcome succeeded
+        low_ratings: set[str] = set()  # turns the owner rated 1–2
         for event in events:
             kind = getattr(event, "kind", None)
             payload = getattr(event, "payload", {})
@@ -61,13 +65,17 @@ class EffortPolicy:
                     "escalated_from": payload.get("escalated_from"),
                 }
             elif kind == "outcome":
-                meta = meta_by_turn.get(event.turn_id)
-                if not meta:
-                    continue
-                depth = meta["depth"]
-                succeeded = not (event.failure and event.failure != FailureTaxonomy.NONE)
-                if depth == "reflex" or meta.get("escalated_from") == "reflex":
-                    reflex_class.append((event.turn_id, succeeded))
+                outcomes[event.turn_id] = not (event.failure and event.failure != FailureTaxonomy.NONE)
+            elif kind == "feedback":
+                if int(payload.get("score", 5)) <= 2:
+                    low_ratings.add(event.turn_id)
+        reflex_class: list[tuple[str, bool]] = []
+        for turn_id, succeeded in outcomes.items():
+            meta = meta_by_turn.get(turn_id)
+            if not meta:
+                continue
+            if meta["depth"] == "reflex" or meta.get("escalated_from") == "reflex":
+                reflex_class.append((turn_id, succeeded and turn_id not in low_ratings))
         if len(reflex_class) < 6:
             return ""
         failures = sum(1 for _, ok in reflex_class if not ok)

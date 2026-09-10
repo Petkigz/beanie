@@ -1,0 +1,40 @@
+{
+  "id": "usefulness_feedback",
+  "description": "Explicit usefulness feedback (T13/§8): the owner's verdict about an answer is attributed to that turn's label, never invented, and read back from the trace.",
+  "turns": [
+    {
+      "user": "hello there",
+      "expect": "received"
+    },
+    {
+      "user": "that was useful",
+      "expect": "useful"
+    },
+    {
+      "trace": {
+        "kind": "feedback"
+      },
+      "expect": "\"score\": 5"
+    },
+    {
+      "user": "that wasn't helpful",
+      "expect": "not useful"
+    },
+    {
+      "trace": {
+        "kind": "feedback"
+      },
+      "expect": "\"score\": 1"
+    },
+    {
+      "user": "great, now do something ambiguous",
+      "expect": "ambiguous"
+    },
+    {
+      "trace": {
+        "kind": "feedback"
+      },
+      "expect_absent": "great, now do something"
+    }
+  ]
+}

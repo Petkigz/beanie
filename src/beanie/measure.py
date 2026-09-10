@@ -21,6 +21,7 @@ and `expect_absent` substring checks against everything the turn surfaced):
     {"perform": {"goal":…, "base_dir":…}}  goal execution (Mind.perform_goal)
     {"body": {"capability":…, "args": {…}}}  direct sandbox check (read/list/…)
     {"query": {"kind":…, "type":…}}        assertion over a store
+    {"trace": {"kind": "feedback"}}        assertion over trace events
 
 Any turn may carry `"dirs": [...]` / `"files": {path: text}` to stage the
 environment before the turn; a top-level `"setup"` does the same once up
@@ -64,7 +65,7 @@ class Scenario:
         if not isinstance(turns, list) or not turns:
             raise ValueError(f"scenario {path}: 'turns' must be a non-empty list")
         for turn in turns:
-            if not any(k in turn for k in ("user", "observe", "tick", "demo", "perform", "body", "query")):
+            if not any(k in turn for k in ("user", "observe", "tick", "demo", "perform", "body", "query", "trace")):
                 raise ValueError(f"scenario {path}: each turn needs 'user' or an action key")
             turn.setdefault("expect", "")
         return cls(
@@ -117,6 +118,30 @@ def calibration_report(events: list) -> dict[str, dict]:
     return dict(sorted(buckets.items(), key=lambda kv: kv[1]["n"], reverse=True))
 
 
+def usefulness_report(events: list) -> dict[str, dict]:
+    """T13/A4: explicit owner ratings per confidence label.
+
+    Reads trace feedback events (the owner's 1–5 usefulness verdicts, whether
+    spoken in the loop or set via Mind.rate) and buckets them under the label
+    of the turn they judged. A label whose answers get rated poorly is exactly
+    the signal the effort policy and the owner should see.
+    """
+    labels: dict[str, str] = {}
+    scores: dict[str, list[int]] = {}
+    for event in events:
+        kind = getattr(event, "kind", None)
+        payload = getattr(event, "payload", {})
+        if kind == "outcome":
+            labels[event.turn_id] = str(payload.get("label", "")) or "unlabeled"
+        elif kind == "feedback":
+            label = labels.get(event.turn_id, "unlabeled")
+            scores.setdefault(label, []).append(int(payload.get("score", 0)))
+    return {
+        label: {"n": len(values), "sum": sum(values), "mean": round(sum(values) / len(values), 2)}
+        for label, values in sorted(scores.items())
+    }
+
+
 @dataclass
 class ScenarioResult:
     scenario_id: str
@@ -125,6 +150,7 @@ class ScenarioResult:
     failures: list[dict] = field(default_factory=list)
     trace_failures: dict[str, int] = field(default_factory=dict)
     calibration: dict[str, dict] = field(default_factory=dict)
+    usefulness: dict[str, dict] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -139,6 +165,7 @@ class ScenarioResult:
             "failures": self.failures,
             "trace_failures": self.trace_failures,
             "calibration": self.calibration,
+            "usefulness": self.usefulness,
         }
 
 
@@ -198,6 +225,13 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
             spec = {k: v for k, v in turn["query"].items() if k not in ("text",)}
             entries = mind.memory.query(**spec)
             haystacks.append(json.dumps([e.content for e in entries]))
+        elif "trace" in turn:
+            wanted = str(turn["trace"].get("kind", ""))
+            haystacks.append(json.dumps([
+                {"kind": e.kind, "turn_id": e.turn_id, "payload": e.payload}
+                for e in mind.trace.events
+                if not wanted or e.kind == wanted
+            ]))
         else:
             reply = mind.step(turn["user"])
             haystacks.extend([reply.text, " ".join(reply.reminders), " ".join(reply.questions)])
@@ -241,6 +275,7 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
         turn_haystacks.append(haystack)
     result.trace_failures = mind.trace.failures_by_kind()
     result.calibration = calibration_report(mind.trace.events)
+    result.usefulness = usefulness_report(mind.trace.events)
     return result
 
 
@@ -373,6 +408,17 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         for label, stats in sorted(merged.items(), key=lambda kv: -kv[1]["n"]):
             accuracy = round((stats["n"] - stats["failures"]) / stats["n"], 3)
             print(f"  {label:<18} n={stats['n']:<3} failures={stats['failures']:<3} accuracy={accuracy}")
+    ratings: dict[str, dict[str, int]] = {}
+    for row in payload:
+        for label, stats in (row.get("usefulness") or {}).items():
+            bucket = ratings.setdefault(label, {"n": 0, "sum": 0})
+            bucket["n"] += stats["n"]
+            bucket["sum"] += stats.get("sum", 0)
+    if ratings:
+        print("\nUsefulness (explicit owner ratings, T13):")
+        for label, stats in sorted(ratings.items(), key=lambda kv: -kv[1]["n"]):
+            mean = round(stats["sum"] / stats["n"], 2) if stats["n"] else 0
+            print(f"  {label:<18} n={stats['n']:<3} mean_rating={mean}")
     if out_path is not None:
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if track_dir is not None:

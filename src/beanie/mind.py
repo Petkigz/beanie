@@ -68,6 +68,44 @@ _CORRECTION_RE = re.compile(
     r"(?:[,\-:]\s*|\s+)(.*)$",
     re.IGNORECASE,
 )
+#: explicit usefulness feedback about the previous answer (§8/T13): the owner
+#: says a cheap answer was or wasn't useful, and the effort policy hears it
+_RATING_OPENER_RE = re.compile(
+    r"^\s*(?:that|this|it|thanks|thank you|well done|good job|nice work|"
+    r"perfect|great|excellent|useful|helpful|useless|unhelpful)\b",
+    re.IGNORECASE,
+)
+_RATING_END_RE = re.compile(
+    r"(?:useful|helpful|great|perfect|excellent|correct|right|helped|"
+    r"thanks|done|job|work|useless|unhelpful|wrong)\W*$",
+    re.IGNORECASE,
+)
+_RATING_POSITIVE = ("useful", "helpful", "great", "perfect", "excellent",
+                    "good job", "well done", "nice work", "correct", "right",
+                    "helped", "thanks", "thank you")
+_RATING_NEGATIVE = ("useless", "unhelpful", "not useful", "not helpful",
+                    "wasn't useful", "wasn't helpful", "isn't useful", "isn't helpful",
+                    "wrong", "not right", "didn't help", "did not help")
+
+
+def parse_usefulness_rating(text: str) -> Optional[int]:
+    """Return 1–5 for an explicit usefulness remark about the last answer, else None.
+
+    Deliberately conservative: short, sentiment-final messages only, so ordinary
+    conversation ("great, now move the files") never registers as feedback.
+    """
+    lowered = text.lower().strip()
+    if not lowered or len(lowered.split()) > 8:
+        return None
+    if not _RATING_OPENER_RE.match(lowered) or not _RATING_END_RE.search(lowered):
+        return None
+    if any(phrase in lowered for phrase in _RATING_NEGATIVE):
+        return 1
+    if any(phrase in lowered for phrase in _RATING_POSITIVE):
+        return 5
+    return None
+
+
 #: owner statements that command memory ("remember that X is Y")
 _REMEMBER_RE = re.compile(r"^\s*(?:remember|note|keep in mind)(?:\s+that)?\s*:?\s*(.+)$", re.IGNORECASE)
 _FACT_RE = re.compile(
@@ -158,6 +196,8 @@ class Mind:
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
+        self._current_turn_id: str = ""
+        self._previous_turn_id: str = ""
 
     # ======================================================================
     # Owner input
@@ -167,6 +207,8 @@ class Mind:
         """One cognitive-loop turn for one owner utterance (§4.1)."""
         turn_id = self._new_turn_id()
         text = user_text.strip()
+        self._previous_turn_id = self._current_turn_id
+        self._current_turn_id = turn_id
 
         # 1) prospective memory: set or cancel an intention (§3.7)
         if _CANCEL_REMARK_RE.match(text):
@@ -242,7 +284,12 @@ class Mind:
         if correction:
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
-        # 12) default cognition path (§4.1)
+        # 12) explicit usefulness feedback about the last answer (§8/T13)
+        rating = parse_usefulness_rating(text)
+        if rating is not None:
+            return self._rate_last(turn_id, text, rating)
+
+        # 13) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
 
     def _introspect(self, turn_id: str, text: str) -> Reply:
@@ -751,6 +798,25 @@ class Mind:
         from .calibration import UsefulnessTracker
 
         UsefulnessTracker().rate(self.trace, turn_id, score, note)
+
+    def _rate_last(self, turn_id: str, text: str, score: int) -> Reply:
+        """Attach the owner's usefulness verdict to the answer it is about.
+
+        The rating lands in the trace against the *previous* turn's id, so the
+        per-label usefulness summary (T13) and the effort-policy audit both
+        read it; the loop then answers normally (no rating is ever fabricated
+        for a turn that did not happen).
+        """
+        target = self._previous_turn_id
+        if not target:
+            return self._directive_reply(
+                turn_id, "I don't have an answer to rate yet — say it after a turn you're judging.",
+                success=True,
+            )
+        self.rate(target, score, note=text)  # one feedback event per rating, against the judged turn
+        judgement = "useful" if score >= 4 else "not useful"
+        reply_text = f"Noted — I'll treat that answer as {judgement} (rated {score}/5)."
+        return self._directive_reply(turn_id, reply_text, success=True)
 
     def explain(self, *, turn_id: str = "", record_id: str = "") -> Optional[str]:
         """User-facing explanation on demand (§4.5 / T10)."""

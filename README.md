@@ -50,19 +50,19 @@ src/beanie/
   mind.py         location facts + "where is X?" world-model answers (row 11); teaches rules on "how do you organize X" (row 34)
   intention.py    prospective memory: turn-count, wall-clock + conditional "when X appears" (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
-  mind.py         self-model introspection (row 35), low-confidence caveats (Q13), knowledge export/import between minds (Q15)
+  mind.py         self-model introspection (row 35), low-confidence caveats (Q13), usefulness ratings + knowledge export/import (T13/Q15)
   explain.py      explanation service, auditable, on demand (§4.5/T10)
   cognition.py    effort allocation, devil's advocate, curiosity gaps (§4.6/4.7)
   attention.py    novelty over observed streams (§4.2)
   substrate.py    fast/deep tier interface + deterministic test double (§2)
   substrate_http.py  optional OpenAI-compatible real model tier (§2)
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 21 tasks, action turns, trailing-30-day window report (Q31), T8 calibration table
+  measure.py      longitudinal suite runner: 22 tasks, action turns, trailing-30-day window report (Q31), T8 calibration + T13 usefulness tables
   cli.py          REPL window into the mind
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
-suites/           21 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
+suites/           22 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority, policy…
-tests/            95 tests incl. the conformance drift guard + T-test battery
+tests/            101 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it
