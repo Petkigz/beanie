@@ -55,19 +55,21 @@ src/beanie/
   mind.py         self-model introspection (row 35), low-confidence caveats (Q13), usefulness ratings + knowledge export/import (T13/Q15)
   explain.py      explanation service, auditable, on demand (§4.5/T10)
   cognition.py    effort allocation, devil's advocate, curiosity gaps (§4.6/4.7)
+  affect.py       owner-model affect observations: tone read from the owner's words,
+                  cited back on request, raises the effort floor when frustrated (§3.5)
   attention.py    novelty over observed streams (§4.2)
   substrate.py    fast/deep tier interface + deterministic test double (§2)
   substrate_http.py  optional OpenAI-compatible real model tier (§2)
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 23 tasks, action turns, register + score
+  measure.py      longitudinal suite runner: 24 tasks, action turns, register + score
                   snapshots, trailing-30-day window report (suite delta, register movement,
                   VISION §5 level movement, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` / --tick runs the idle budget
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
-suites/           23 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
+suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
-                  (gating + growing autonomy), policy, idle curiosity, consistency…
-tests/            120 tests incl. the conformance drift guard + T-test battery
+                  (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
+tests/            125 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it

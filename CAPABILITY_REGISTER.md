@@ -114,7 +114,7 @@ and, where one exists, its behavioral proxy:
 | Capability (source) | Why it is excluded | Behavioral proxy in scope |
 |---|---|---|
 | Subjective experience / qualia / personal stake — "cares about outcomes" (R3.23) | Unfalsifiable; simulating it would be deception (VISION §4) | T7 identity, T5 curiosity, preference learning |
-| Persistent mood / affective state coloring cognition (R3.19) | Would be simulated emotion on top of a model that has none | Owner-model affect *observations*; confidence as state |
+| Persistent mood / affective state coloring cognition (R3.19) | Would be simulated emotion on top of a model that has none | Owner-model affect *observations* (implemented: `affect.py` — tone read from the owner's own words with markers kept as evidence, recency-bounded, cited back on request; behavior responds, the mind claims no feeling); confidence as state |
 | Self-preservation drive / mortality (R3.26) | Unbuildable by prompt; dangerous to fake | Continuity as an architectural property, not a fear |
 | Aesthetic preference — simplicity/beauty bias (Domain C) | Not yet testable without a defined aesthetics ground truth | T6 elegance probes (candidate, Stage 5) |
 | "Surprise" detector on its own novelty (Domain C, R2.9) | No reliable self-signal to detect; likely confabulated | Contradiction engine (T2/T11) — surprise *about the world*, which is real |
@@ -167,7 +167,7 @@ still gated on the model substrate.
 | 30 | 1 | Calibrated labels on every reply from the evidence state (T8 test passing) |
 | 31 | 1 | Correction channel with strategy revision (T9) |
 | 32 | 1 | Explanation service, auditable, plain language, on demand (T10 test passing) |
-| 33 | 1 (belief layer) / P | Owner belief statements stored apart from facts; conflicts surfaced without overwriting; explanations cite the owner's model. Full belief-model-driven explanation adaptation needs the model tier |
+| 33 | 1 (belief layer) / P | Owner belief statements stored apart from facts; conflicts surfaced without overwriting; explanations cite the owner's model; owner *tone* is observed from their own words (evidence-backed, escaped to behavior: frustrated turns never get reflex answers, get an acknowledgement + offer to change tack, and the owner can read back exactly what was noticed) — no inner life is ever claimed. Full belief-model-driven explanation adaptation needs the model tier |
 | 34 | 1 (sandbox) / P | "how do you organize X?" explains the confirmed rule in plain terms and names its origin; the general teaching property needs substrate evidence |
 | 35 | 1 | Self-model introspection: "what are you unsure about?" / "what have you learned?" / "what can you do?" / "tell me about yourself" answer from open questions, lessons, body capabilities + learned skills, and the T7 identity summary with an on-record calibration line — never canned text |
 | 36 | P | Identity fluidity: the T7 consolidation data path exists and an executable probe differences two histories; long-history evidence pending |
@@ -180,5 +180,5 @@ still gated on the model substrate.
 | T13 | 1 | EffortPolicy adapts the reflex budget on failures, low ratings and abandonment, persists changes with reasons, and survives restarts |
 | Q13 | 1 | A successful answer the evidence does not back (<0.55 calibrated) carries an explicit caveat and opens a recorded residual gap |
 | Q15 / R2.15 | 1 | `export_knowledge()` / `import_knowledge()` transfer confirmed skills, facts and preferences between minds without sharing episodes; the receiving mind performs the taught goal |
-| Q31 / §8 | 1 | Longitudinal suite of 23 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
+| Q31 / §8 | 1 | Longitudinal suite of 24 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
 | §8 signals | 1 | Explicit rating, correction, follow-up and abandonment all recorded per turn; the suite prints ratings by label and implicit signal counts |

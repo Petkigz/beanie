@@ -1,0 +1,12 @@
+{
+  "id": "owner_affect",
+  "description": "Owner-model affect observations (§3.5 proxy for the excluded 'mood' capability): tone is read from the owner's own words, cited back on request, never invented — and a frustrated owner gets deeper processing plus an offer to change tack.",
+  "turns": [
+    {"user": "how do you think i'm feeling?", "expect": "haven't noted anything", "expect_absent": "you are frustrated"},
+    {"user": "this is broken, it keeps failing!", "expect": "you sound frustrated"},
+    {"user": "ugh, still not right", "expect": "2 frustrated messages in a row"},
+    {"query": {"kind": "owner_model", "type": "affect_observation"}, "expect": "frustration"},
+    {"user": "how am I doing?", "expect": "observations, not guesses"},
+    {"user": "thanks, that works now", "expect": "received", "expect_absent": "you sound frustrated"}
+  ]
+}

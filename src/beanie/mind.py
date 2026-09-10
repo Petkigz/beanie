@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .affect import AffectObserver
 from .attention import NoveltyDetector
 from .belief import ContradictionEngine, DecayMonitor
 from .body import AuthorityGate, BodyError, SandboxBody, parse_authority_statement
@@ -47,6 +48,14 @@ from .trace import FailureTaxonomy, Trace
 #: owner statements that start a preference (VISION T4)
 _PREF_RE = re.compile(
     r"^\s*(?:i\s+prefer\b|i\s+like\b|when\s+(?:i'?m\s+|i\s+am\s+|i\s+)?(?:uncertain|unsure|in\s+doubt|not\s+sure)\b)",
+    re.IGNORECASE,
+)
+#: owner-tone read-back (row 33 proxy: the owner model, cited)
+_AFFECT_QUERY_RE = re.compile(
+    r"^\s*(?:"
+    r"how\s+(?:do\s+you\s+think\s+)?(?:am\s+i|i\s+am|i'?m)\s+(?:feeling|doing|sounding|coming\s+across)|"
+    r"what\s+(?:have\s+you\s+noticed\s+about|do\s+you\s+think\s+of)\s+(?:me|my\s+(?:tone|mood))"
+    r")\s*\??\s*$",
     re.IGNORECASE,
 )
 #: introspection — the self-model answers about itself (row 35)
@@ -199,6 +208,7 @@ class Mind:
         self.calibrator = Calibrator(self.memory, self.trace)
         self.devil = Devil(self.memory)
         self.curiosity = Curiosity(self.memory)
+        self.affect = AffectObserver(self.memory)
         self.learner = DemonstrationLearner(self.memory)
         self.preferences = PreferenceMiner(self.memory)
         self.planner = Planner(self.memory, self.learner)
@@ -227,7 +237,13 @@ class Mind:
     # ======================================================================
 
     def step(self, user_text: str) -> Reply:
-        """One cognitive-loop turn for one owner utterance (§4.1)."""
+        """One cognitive-loop turn for one owner utterance (§4.1).
+
+        The turn first reads the owner's *tone* (§3.5 owner model; the register's
+        behavioral proxy for the excluded "mood" capability) and, when the owner
+        expresses frustration, the reply acknowledges it and offers to change
+        tack — observation shaping behavior, never a claim of feeling.
+        """
         turn_id = self._new_turn_id()
         text = user_text.strip()
         self._previous_turn_id = self._current_turn_id
@@ -235,6 +251,17 @@ class Mind:
         self._record_implicit_usefulness(turn_id, text)
         self._previous_user_text = text  # for the next turn's signal judgement
 
+        observation = self.affect.observe(turn_id, text)
+        if observation is not None:
+            self.trace.append(turn_id, "affect",
+                              {"tone": observation.content["tone"], "markers": observation.content["markers"]})
+        reply = self._dispatch(turn_id, text)
+        if observation is not None and observation.content["tone"] == "frustration":
+            return self._acknowledge_frustration(turn_id, reply)
+        return reply
+
+    def _dispatch(self, turn_id: str, text: str) -> Reply:
+        """Route one stripped utterance to its directive or to default cognition."""
         # 1) prospective memory: set or cancel an intention (§3.7)
         if _CANCEL_REMARK_RE.match(text):
             cancelled = self.intentions.cancel_matching(text)
@@ -290,34 +317,38 @@ class Mind:
             if handled is not None:
                 return handled
 
-        # 7) introspection — the self-model answers about itself (row 35)
+        # 7) owner-tone read-back → owner model, cited (row 33 proxy)
+        if _AFFECT_QUERY_RE.match(text):
+            return self._read_back_owner_tone(turn_id, text)
+
+        # 8) introspection — the self-model answers about itself (row 35)
         if _INTROSPECT_RE.match(text):
             return self._introspect(turn_id, text)
 
-        # 8) belief statements ("i think that X is Y") → owner belief layer (§3.5)
+        # 9) belief statements ("i think that X is Y") → owner belief layer (§3.5)
         if _BELIEF_RE.match(text):
             return self._note_belief(turn_id, text)
 
-        # 9) commanded memory ("remember that …") → semantic store via §3.6
+        # 10) commanded memory ("remember that …") → semantic store via §3.6
         remember = _REMEMBER_RE.match(text)
         if remember:
             return self._remember(turn_id, remember.group(1).strip())
 
-        # 10) explanation on demand (§4.5 / T10)
+        # 11) explanation on demand (§4.5 / T10)
         if _EXPLAIN_RE.match(text):
             return self._explain_last(turn_id, text)
 
-        # 11) corrections — the continuous "no, that's wrong" channel (§4.4)
+        # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
         if correction:
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
-        # 12) explicit usefulness feedback about the last answer (§8/T13)
+        # 13) explicit usefulness feedback about the last answer (§8/T13)
         rating = parse_usefulness_rating(text)
         if rating is not None:
             return self._rate_last(turn_id, text, rating)
 
-        # 13) default cognition path (§4.1)
+        # 14) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
 
     def _introspect(self, turn_id: str, text: str) -> Reply:
@@ -844,6 +875,39 @@ class Mind:
             self.trace.append(turn_id, "authority", {"requests_answered": resolved, "action": action})
         return resolved
 
+    def _read_back_owner_tone(self, turn_id: str, text: str) -> Reply:
+        """Answer 'how am I doing?' from recorded observations, never from guesses (row 33)."""
+        reply_text = self.affect.summary()
+        episode = self._record_episode(
+            turn_id, reply_text, 0.9, True, None,
+            extra={"user_text": text, "directive": "owner_model_readback", "reply": reply_text},
+        )
+        self.trace.append(turn_id, "affect", {"read_back": self.affect.current_tone()})
+        return Reply(text=reply_text, confidence=0.9, confidence_label=confidence_label(0.9),
+                     turn_id=turn_id, success=True, record_id=episode.id)
+
+    def _acknowledge_frustration(self, turn_id: str, reply: Reply) -> Reply:
+        """Attach a short, non-patronising acknowledgement to a frustrated turn (§3.5).
+
+        The mind says what it noticed (the owner's own words), asks what to do
+        differently, and otherwise leaves the answer intact. No diagnosis, no
+        apology theatre — the observation is cited, and the owner decides.
+        """
+        streak = self.affect.frustration_streak()
+        note = (" You sound frustrated — tell me what to change and I'll take a different "
+                "approach.")
+        if streak >= 2:
+            note = (f" That's {streak} frustrated messages in a row — I'll stop guessing. "
+                    f"Tell me the outcome you want and I'll work backwards from it.")
+        self.trace.append(turn_id, "affect", {"acknowledged": True, "streak": streak})
+        from dataclasses import replace as _replace  # dataclass with tuples: copy safely
+
+        return _replace(
+            reply,
+            text=reply.text + note,
+            questions=tuple(reply.questions) + ("Should I change how I'm approaching this?",),
+        )
+
     def _note_permission_need(self, goal: str, result: PlanResult) -> str:
         """Turn a permission wall into an explicit, counted, non-nagging ask (§5).
 
@@ -1310,10 +1374,14 @@ class Mind:
 
         The reflex word budget comes from the adaptive effort policy, so
         usefulness feedback (T13) can widen or tighten what counts as
-        "trivial" over time.
+        "trivial" over time. A frustrated owner is never answered reflexively:
+        the recorded tone (§3.5 observation) raises the floor to deep processing,
+        because a cheap answer is the last thing that helps then.
         """
         stakes = stakes_of(text)
         if stakes == 0 and len(text.split()) <= self.policy.word_limit:
+            if self.affect.current_tone() == "frustration":
+                return "deep"  # affect observation raises the effort floor, never lowers it
             return "reflex"
         return "deep_verified" if stakes >= self.policy.verify_stakes else "deep"
 
