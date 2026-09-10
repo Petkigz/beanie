@@ -1,0 +1,32 @@
+{
+  "id": "introspection_state",
+  "description": "Self-model introspection (row 35): gaps and lessons answered from live stores — honest empty state first, then a real gap, then a distilled correction lesson.",
+  "reflect_every": 4,
+  "turns": [
+    {
+      "user": "what are you unsure about?",
+      "expect": "unresolved questions",
+      "expect_absent": "open questions i'm holding"
+    },
+    {
+      "user": "the context is missing here",
+      "expect": "missing"
+    },
+    {
+      "user": "what are you unsure about?",
+      "expect": "missing"
+    },
+    {
+      "user": "wait, that's wrong about the context",
+      "expect": "wrong"
+    },
+    {
+      "tick": 1,
+      "expect": "corrected"
+    },
+    {
+      "user": "what have you learned recently?",
+      "expect": "corrected"
+    }
+  ]
+}

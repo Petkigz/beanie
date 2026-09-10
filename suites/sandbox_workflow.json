@@ -1,0 +1,57 @@
+{
+  "id": "sandbox_workflow",
+  "description": "Tool chaining in the sandbox (§7/row 26): demonstrate once, run the plan, read the result back, and inspect the tree — all primitives discovered by need.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "downloads",
+      "docs"
+    ],
+    "files": {
+      "downloads/invoice.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "demo": {
+        "title": "pdfs to docs",
+        "goal_class": "organize files",
+        "actions": [
+          {
+            "capability": "move_file",
+            "args": {
+              "src": "downloads/invoice.pdf",
+              "dst": "docs"
+            }
+          }
+        ]
+      },
+      "expect": "pdf"
+    },
+    {
+      "files": {
+        "downloads/bill.pdf": "bill"
+      },
+      "perform": {
+        "goal": "organize files",
+        "base_dir": "downloads"
+      },
+      "expect": "success"
+    },
+    {
+      "body": {
+        "capability": "read_file",
+        "args": {
+          "path": "docs/bill.pdf"
+        }
+      },
+      "expect": "bill"
+    },
+    {
+      "body": {
+        "capability": "snapshot"
+      },
+      "expect": "docs/invoice.pdf"
+    }
+  ]
+}

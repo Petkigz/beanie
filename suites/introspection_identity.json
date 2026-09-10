@@ -1,0 +1,43 @@
+{
+  "id": "introspection_identity",
+  "description": "Identity introspection (row 35/T7): capabilities come from the body, learned skills from procedural memory, and the self-summary from lived history.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "downloads"
+    ],
+    "files": {
+      "downloads/invoice.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "user": "what can you do?",
+      "expect": "write_file"
+    },
+    {
+      "demo": {
+        "title": "pdfs to docs",
+        "goal_class": "organize files",
+        "actions": [
+          {
+            "capability": "move_file",
+            "args": {
+              "src": "downloads/invoice.pdf",
+              "dst": "docs"
+            }
+          }
+        ]
+      },
+      "expect": "pdf"
+    },
+    {
+      "user": "what can you do?",
+      "expect": "organize files"
+    },
+    {
+      "user": "tell me about yourself",
+      "expect": "not by a script"
+    }
+  ]
+}

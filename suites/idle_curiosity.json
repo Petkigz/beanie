@@ -1,0 +1,18 @@
+{
+  "id": "idle_curiosity",
+  "description": "Idle curiosity (§4.2/row 21): a hard turn queues an open question; the background tick explores it, and the next tick has nothing left to explore.",
+  "turns": [
+    {
+      "user": "the context is missing here",
+      "expect": "missing"
+    },
+    {
+      "tick": 1,
+      "expect": "context is missing"
+    },
+    {
+      "tick": 1,
+      "expect": "\"curiosity\": []"
+    }
+  ]
+}

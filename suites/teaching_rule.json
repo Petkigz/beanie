@@ -1,0 +1,39 @@
+{
+  "id": "teaching_rule",
+  "description": "Teaching the owner (row 34): 'how do you organize …?' explains the confirmed rule in plain terms and names its origin.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "downloads"
+    ],
+    "files": {
+      "downloads/invoice.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "demo": {
+        "title": "pdfs to docs",
+        "goal_class": "organize files",
+        "actions": [
+          {
+            "capability": "move_file",
+            "args": {
+              "src": "downloads/invoice.pdf",
+              "dst": "docs"
+            }
+          }
+        ]
+      },
+      "expect": "pdf"
+    },
+    {
+      "user": "how do you organize pdfs?",
+      "expect": "learned this from your demonstration"
+    },
+    {
+      "user": "how do you organize quantum widgets?",
+      "expect": "received"
+    }
+  ]
+}

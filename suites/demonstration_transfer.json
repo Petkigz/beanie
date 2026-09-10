@@ -1,0 +1,62 @@
+{
+  "id": "demonstration_transfer",
+  "description": "One-demonstration learning with transfer (T1/row 22): the rule from a single demo runs on a folder of new files, unruly extensions untouched.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "downloads",
+      "docs"
+    ],
+    "files": {
+      "downloads/invoice.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "demo": {
+        "title": "pdfs to docs",
+        "goal_class": "organize files",
+        "actions": [
+          {
+            "capability": "move_file",
+            "args": {
+              "src": "downloads/invoice.pdf",
+              "dst": "docs"
+            }
+          }
+        ]
+      },
+      "expect": "pdf"
+    },
+    {
+      "files": {
+        "downloads/statement.pdf": "y",
+        "downloads/readme.txt": "z"
+      },
+      "perform": {
+        "goal": "organize files",
+        "base_dir": "downloads"
+      },
+      "expect": "success"
+    },
+    {
+      "body": {
+        "capability": "read_file",
+        "args": {
+          "path": "docs/statement.pdf"
+        }
+      },
+      "expect": "statement.pdf"
+    },
+    {
+      "body": {
+        "capability": "list_files",
+        "args": {
+          "dir": "downloads"
+        }
+      },
+      "expect": "readme.txt",
+      "expect_absent": "statement.pdf"
+    }
+  ]
+}

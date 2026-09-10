@@ -1,0 +1,42 @@
+{
+  "id": "what_if_simulation",
+  "description": "Counterfactual simulation (row 10): what-if questions predict over the world model without touching the body.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "downloads",
+      "docs"
+    ],
+    "files": {
+      "downloads/a.pdf": "x",
+      "downloads/b.txt": "y"
+    }
+  },
+  "turns": [
+    {
+      "observe": true
+    },
+    {
+      "user": "what if i moved a.pdf to docs",
+      "expect": "would move"
+    },
+    {
+      "body": {
+        "capability": "list_files",
+        "args": {
+          "dir": "downloads"
+        }
+      },
+      "expect": "a.pdf"
+    },
+    {
+      "body": {
+        "capability": "list_files",
+        "args": {
+          "dir": "docs"
+        }
+      },
+      "expect_absent": "a.pdf"
+    }
+  ]
+}

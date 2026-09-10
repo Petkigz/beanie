@@ -1,0 +1,26 @@
+{
+  "id": "world_model_locations",
+  "description": "Object permanence (row 11): observation records location facts, where-is answers from the world model, unknown objects fall through honestly instead of being invented.",
+  "setup": {
+    "dirs": [
+      "downloads"
+    ],
+    "files": {
+      "downloads/report.pdf": "quarterly numbers"
+    }
+  },
+  "turns": [
+    {
+      "observe": true
+    },
+    {
+      "user": "where is report.pdf?",
+      "expect": "downloads/report.pdf"
+    },
+    {
+      "user": "where is unicorn.xyz?",
+      "expect": "received",
+      "expect_absent": "is at"
+    }
+  ]
+}

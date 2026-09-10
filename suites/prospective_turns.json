@@ -1,0 +1,22 @@
+{
+  "id": "prospective_turns",
+  "description": "Turn-count prospective memory (§3.7): a reminder fires exactly on its due turn; cancellation is honored.",
+  "turns": [
+    {
+      "user": "remind me in 1 turns to stretch",
+      "expect": "remind"
+    },
+    {
+      "user": "moving on to the next topic",
+      "expect": "stretch"
+    },
+    {
+      "user": "remind me in 3 turns to call alice",
+      "expect": "call alice"
+    },
+    {
+      "user": "cancel the reminder about call alice",
+      "expect": "cancel"
+    }
+  ]
+}

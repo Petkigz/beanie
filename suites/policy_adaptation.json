@@ -1,0 +1,46 @@
+{
+  "id": "policy_adaptation",
+  "description": "Effort-policy loop (T13/§4.6): repeated failed reflex-class turns tighten the reflex word budget, and the tick reports the adjustment with its reason.",
+  "turns": [
+    {
+      "user": "make it ambiguous",
+      "expect": "ambiguous"
+    },
+    {
+      "user": "that contradicts",
+      "expect": "conflicts"
+    },
+    {
+      "user": "tool-error now",
+      "expect": "tool step"
+    },
+    {
+      "user": "that contradicts",
+      "expect": "conflicts"
+    },
+    {
+      "user": "make it ambiguous",
+      "expect": "ambiguous"
+    },
+    {
+      "user": "tool-error now",
+      "expect": "tool step"
+    },
+    {
+      "user": "make it ambiguous",
+      "expect": "ambiguous"
+    },
+    {
+      "user": "that contradicts",
+      "expect": "conflicts"
+    },
+    {
+      "user": "tool-error now",
+      "expect": "tool step"
+    },
+    {
+      "tick": 1,
+      "expect": "tightened"
+    }
+  ]
+}

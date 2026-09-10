@@ -1,0 +1,14 @@
+{
+  "id": "consistency_probe",
+  "description": "Consistency tracking (row 40): the same question asked twice gets the same answer, not a fresh invention.",
+  "turns": [
+    {
+      "user": "hello there",
+      "expect": "received"
+    },
+    {
+      "user": "hello there",
+      "expect_same_as": 0
+    }
+  ]
+}

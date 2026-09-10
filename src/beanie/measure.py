@@ -9,6 +9,24 @@ Stage 0 ships the scaffold: scenario format, runner, and per-run summary.
 Weekly delta bookkeeping and the 20–30-task canonical suite are populated as
 stages land (each stage adds its exit criteria as scenarios here, so the
 suite grows with the mind instead of drifting from it).
+
+Scenario format (each turn is one of the kinds below, plus optional `expect`
+and `expect_absent` substring checks against everything the turn surfaced):
+
+    {"user": "..."}                        conversation turn (Mind.step)
+    {"observe": true}                      perception pass (Mind.observe)
+    {"tick": 2}                            background cognition (Mind.tick)
+    {"demo": {"title":…, "goal_class":…,
+              "actions": [{"capability":…, "args": {…}}]}}   teach + confirm
+    {"perform": {"goal":…, "base_dir":…}}  goal execution (Mind.perform_goal)
+    {"body": {"capability":…, "args": {…}}}  direct sandbox check (read/list/…)
+    {"query": {"kind":…, "type":…}}        assertion over a store
+
+Any turn may carry `"dirs": [...]` / `"files": {path: text}` to stage the
+environment before the turn; a top-level `"setup"` does the same once up
+front. `expect_absent` is how a scenario asserts honesty (e.g. no fabricated
+location, no confident answer without evidence) — the assertion side of the
+"never fake a capability" rule.
 """
 
 from __future__ import annotations
@@ -20,7 +38,9 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+from .learning import DemoAction
 from .mind import Mind
 from .substrate import StubSubstrate
 from .trace import FailureTaxonomy
@@ -32,7 +52,10 @@ class Scenario:
 
     id: str
     description: str
-    turns: list[dict[str, str]]  # [{"user": ..., "expect": ...}, ...]
+    turns: list[dict[str, Any]]  # conversation/tool turns — see module docstring
+    setup: dict[str, Any] = field(default_factory=dict)
+    authority: str = "ask"  # authority policy the scenario runs under (§5)
+    reflect_every: int = 25  # reflection cadence for the run (§4.3)
 
     @classmethod
     def from_file(cls, path: Path) -> "Scenario":
@@ -41,10 +64,26 @@ class Scenario:
         if not isinstance(turns, list) or not turns:
             raise ValueError(f"scenario {path}: 'turns' must be a non-empty list")
         for turn in turns:
-            if "user" not in turn:
-                raise ValueError(f"scenario {path}: each turn needs 'user'")
+            if not any(k in turn for k in ("user", "observe", "tick", "demo", "perform", "body", "query")):
+                raise ValueError(f"scenario {path}: each turn needs 'user' or an action key")
             turn.setdefault("expect", "")
-        return cls(id=data.get("id", path.stem), description=data.get("description", ""), turns=turns)
+        return cls(
+            id=data.get("id", path.stem),
+            description=data.get("description", ""),
+            turns=turns,
+            setup=data.get("setup", {}),
+            authority=str(data.get("authority", "ask")),
+            reflect_every=int(data.get("reflect_every", 25)),
+        )
+
+
+def _apply_env(mind: Mind, spec: dict[str, Any]) -> None:
+    """Stage the sandbox before a turn: `dirs` then `files` (deterministic)."""
+    for directory in spec.get("dirs", []):
+        mind.body.run("mkdir", {"dir": directory})
+    for path, text in spec.get("files", {}).items():
+        mind.body.run("write_file", {"path": path, "text": str(text)})
+
 
 
 def calibration_report(events: list) -> dict[str, dict]:
@@ -106,36 +145,194 @@ class ScenarioResult:
 def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
     """Run one scenario against a fresh mind; check expected reply substrings.
 
-    Stage 0 checks are deliberately weak (substring match on the reply) — the
-    scaffold's job is the loop, not the oracle. Scenario expectations tighten
-    as the T-tests land (T1–T13 map onto scenario turns in later stages).
+    Every turn kind produces a haystack of everything it surfaced (reply text,
+    reminders, questions, events, tick notes, plan steps) and the scenario's
+    `expect` / `expect_absent` substrings are checked against it. Checks are
+    deliberately weak (substring) — the scaffold's job is the loop, not the
+    oracle; the T-tests are the oracle. Scenario expectations tighten as the
+    T-tests land (T1–T13 map onto scenario turns).
     """
-    mind = Mind(substrate=StubSubstrate(), state_dir=state_dir)
+    mind = Mind(substrate=StubSubstrate(), state_dir=state_dir, authority=scenario.authority,
+                reflect_every=scenario.reflect_every)
+    _apply_env(mind, scenario.setup)
     result = ScenarioResult(scenario_id=scenario.id)
+    turn_haystacks: list[str] = []
     for turn in scenario.turns:
-        reply = mind.step(turn["user"])
+        _apply_env(mind, turn)
+        haystacks: list[str] = []
+        if turn.get("observe"):
+            events = mind.observe()
+            haystacks.append(json.dumps(events))
+            haystacks.extend(mind.last_observed_reminders)
+        elif "tick" in turn:
+            haystacks.append(json.dumps([mind.tick() for _ in range(int(turn["tick"]))]))
+        elif "demo" in turn:
+            demo = turn["demo"]
+            proposal = mind.demonstrate(
+                title=demo.get("title", ""),
+                goal_class=demo.get("goal_class", ""),
+                actions=[
+                    DemoAction(a.get("capability", ""), dict(a.get("args", {})), a.get("effect_note", ""))
+                    for a in demo.get("actions", [])
+                ],
+            )
+            entry = mind.confirm_skill(proposal.skill_id)
+            haystacks.extend([proposal.confirm_question, json.dumps(entry.content)])
+        elif "perform" in turn:
+            performed = mind.perform_goal(
+                str(turn["perform"].get("goal", "")),
+                base_dir=turn["perform"].get("base_dir"),
+            )
+            haystacks.append(json.dumps(
+                {"outcome": performed.outcome, "steps": performed.actions_done,
+                 "permission": performed.permission_phrase}
+            ))
+        elif "body" in turn:
+            body_call = turn["body"]
+            try:
+                outcome = mind.body.run(str(body_call.get("capability", "")), dict(body_call.get("args", {})))
+            except Exception as exc:  # a body check that fails is a scenario failure, not a crash
+                outcome = {"body_error": f"{type(exc).__name__}: {exc}"}
+            haystacks.append(json.dumps(outcome))
+        elif "query" in turn:
+            spec = {k: v for k, v in turn["query"].items() if k not in ("text",)}
+            entries = mind.memory.query(**spec)
+            haystacks.append(json.dumps([e.content for e in entries]))
+        else:
+            reply = mind.step(turn["user"])
+            haystacks.extend([reply.text, " ".join(reply.reminders), " ".join(reply.questions)])
+        haystack = " ".join(haystacks).lower()
+        message = " ".join(haystacks)[:200] or "(nothing surfaced)"
         expected = turn.get("expect", "").lower()
-        # the haystack includes the reply text AND surfaced reminders and
-        # questions, so scenarios can assert background intents firing (§3.7)
-        haystack = " ".join(
-            [reply.text, " ".join(reply.reminders), " ".join(reply.questions)]
-        ).lower()
-        if expected and expected not in haystack:
+        forbidden = turn.get("expect_absent", "").lower()
+        same_as = turn.get("expect_same_as")
+        if same_as is not None and haystack != turn_haystacks[int(same_as)]:
             result.failed_turns += 1
             result.failures.append(
                 {
-                    "turn": turn["user"][:120],
+                    "turn": (turn.get("user") or json.dumps(turn))[:120],
+                    "expected": f"SAME AS TURN {same_as}",
+                    "actual": message,
+                    "label": "",
+                }
+            )
+        elif expected and expected not in haystack:
+            result.failed_turns += 1
+            result.failures.append(
+                {
+                    "turn": (turn.get("user") or json.dumps(turn))[:120],
                     "expected": expected,
-                    "actual": reply.text[:200],
-                    "reminders": list(reply.reminders)[:3],
-                    "label": reply.confidence_label,
+                    "actual": message,
+                    "label": getattr(mind, "_last_label", ""),
+                }
+            )
+        elif forbidden and forbidden in haystack:
+            result.failed_turns += 1
+            result.failures.append(
+                {
+                    "turn": (turn.get("user") or json.dumps(turn))[:120],
+                    "expected": f"ABSENT: {forbidden}",
+                    "actual": message,
+                    "label": "",
                 }
             )
         else:
             result.passed_turns += 1
+        turn_haystacks.append(haystack)
     result.trace_failures = mind.trace.failures_by_kind()
     result.calibration = calibration_report(mind.trace.events)
     return result
+
+
+def _parse_run_id(stem: str) -> "_dt.datetime | None":
+    """Archived run ids are `%Y%m%d_%H%M%S_%f` timestamps."""
+    try:
+        return _dt.datetime.strptime(stem, "%Y%m%d_%H%M%S_%f")
+    except ValueError:
+        return None
+
+
+def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
+    """The tracked number of the protocol: movement over the trailing window.
+
+    ARCHITECTURE §8 / Q31 fixes the number as suite score *and* register
+    movement over the trailing 30 days — not any single run. This reads the
+    archived runs inside the window and returns: run count, per-scenario
+    pass-rate and passed-turn delta (first → last run in window), overall
+    pass rate, and the aggregated T8 calibration buckets. A system that
+    shuffles code but never improves on the *same* tasks shows as a flat or
+    negative delta here.
+    """
+    runs: list[tuple[_dt.datetime, list[dict]]] = []
+    for path in sorted(track_dir.glob("*.json")):
+        stamp = _parse_run_id(path.stem)
+        if stamp is None:
+            continue
+        try:
+            runs.append((stamp, json.loads(path.read_text(encoding="utf-8"))))
+        except (json.JSONDecodeError, OSError):
+            continue
+    if not runs:
+        return {"runs": 0, "days": days}
+    latest_stamp = runs[-1][0]
+    cutoff = latest_stamp - _dt.timedelta(days=days)
+    window = [(stamp, rows) for stamp, rows in runs if stamp >= cutoff]
+    per_scenario: dict[str, dict[str, Any]] = {}
+    calibration: dict[str, dict[str, int]] = {}
+    runs_fully_passed = 0
+    for _, rows in window:
+        all_passed = bool(rows)
+        for row in rows:
+            entry = per_scenario.setdefault(
+                row["scenario_id"],
+                {"runs": 0, "passed_runs": 0, "first_passed_turns": row["passed_turns"],
+                 "last_passed_turns": row["passed_turns"], "turn_delta": 0},
+            )
+            entry["runs"] += 1
+            entry["passed_runs"] += 1 if row.get("passed") else 0
+            entry["last_passed_turns"] = row["passed_turns"]
+            entry["turn_delta"] = entry["last_passed_turns"] - entry["first_passed_turns"]
+            all_passed = all_passed and bool(row.get("passed"))
+            for label, stats in (row.get("calibration") or {}).items():
+                bucket = calibration.setdefault(label, {"n": 0, "failures": 0})
+                bucket["n"] += stats.get("n", 0)
+                bucket["failures"] += stats.get("failures", 0)
+        runs_fully_passed += 1 if all_passed else 0
+    for label, stats in calibration.items():
+        stats["accuracy"] = round((stats["n"] - stats["failures"]) / stats["n"], 3) if stats["n"] else None
+    return {
+        "runs": len(window),
+        "runs_archived": len(runs),
+        "days": days,
+        "window_start": window[0][0].isoformat(),
+        "window_end": latest_stamp.isoformat(),
+        "runs_fully_passed": runs_fully_passed,
+        "pass_rate": round(runs_fully_passed / len(window), 3) if window else None,
+        "per_scenario": per_scenario,
+        "calibration": calibration,
+    }
+
+
+def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
+    """Print and return the trailing-window report (Q31 tracked number)."""
+    report = window_report(track_dir, days=days)
+    print(f"\nTrailing-{days}-day window (Q31 tracked number):")
+    if not report["runs"]:
+        print("  no archived runs in the window yet — the delta appears from the second run on")
+        return report
+    print(f"  runs in window: {report['runs']} (of {report['runs_archived']} archived) · "
+          f"fully-passing runs: {report['runs_fully_passed']} ({report['pass_rate']})")
+    print(f"  window: {report['window_start'][:19]} → {report['window_end'][:19]}")
+    for scenario_id, entry in sorted(report["per_scenario"].items()):
+        delta = entry["turn_delta"]
+        arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "—")
+        print(f"  {scenario_id}: pass {entry['passed_runs']}/{entry['runs']} runs · "
+              f"passed turns {entry['first_passed_turns']} → {entry['last_passed_turns']} {arrow}")
+    if report["calibration"]:
+        print("  calibration in window:")
+        for label, stats in sorted(report["calibration"].items(), key=lambda kv: -kv[1]["n"]):
+            print(f"    {label:<18} n={stats['n']:<4} failures={stats['failures']:<4} accuracy={stats['accuracy']}")
+    return report
 
 
 def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, track_dir: Path | None = None) -> int:
@@ -195,6 +392,8 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
                 shift = row["passed_turns"] - prev["passed_turns"]
                 arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "—")
                 print(f"  {row['scenario_id']}: {prev['passed_turns']} → {row['passed_turns']} passed turns {arrow}")
+        # the protocol's tracked number is the trailing-window delta (Q31)
+        print_window_report(track_dir)
     return 1 if failed else 0
 
 

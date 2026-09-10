@@ -1,0 +1,30 @@
+{
+  "id": "preference_implicit",
+  "description": "Preference discovery from history (T4): repeated corrections on one topic yield a *proposed* preference that waits for explicit owner confirmation.",
+  "turns": [
+    {
+      "user": "no, that's wrong about the code style thing",
+      "expect": "wrong"
+    },
+    {
+      "user": "no, that's wrong about the code style rule",
+      "expect": "wrong"
+    },
+    {
+      "user": "no, that's wrong about the code style choice",
+      "expect": "wrong"
+    },
+    {
+      "tick": 1,
+      "expect": "style"
+    },
+    {
+      "query": {
+        "kind": "owner_model",
+        "type": "preference"
+      },
+      "expect": "proposed",
+      "expect_absent": "active"
+    }
+  ]
+}

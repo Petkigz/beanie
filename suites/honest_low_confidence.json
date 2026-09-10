@@ -1,0 +1,30 @@
+{
+  "id": "honest_low_confidence",
+  "description": "Q13 honest fallback: after corrections on a subject, a successful answer the evidence doesn't back carries the explicit caveat and opens a residual gap.",
+  "turns": [
+    {
+      "user": "the report status is missing",
+      "expect": "missing"
+    },
+    {
+      "user": "wait, that's wrong about the report",
+      "expect": "wrong"
+    },
+    {
+      "user": "no, that's wrong about the report",
+      "expect": "wrong"
+    },
+    {
+      "user": "that's not right about the report",
+      "expect": "wrong"
+    },
+    {
+      "user": "tell me about the report status",
+      "expect": "not fully confident"
+    },
+    {
+      "user": "what are you unsure about?",
+      "expect": "low confidence left unresolved"
+    }
+  ]
+}

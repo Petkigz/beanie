@@ -1,0 +1,18 @@
+{
+  "id": "belief_vs_fact",
+  "description": "Owner belief layer (§3.5/row 33): beliefs are stored apart from facts, never overwrite them, and explanations cite the owner's actual model.",
+  "turns": [
+    {
+      "user": "i think that server_d is in lagos",
+      "expect": "your belief"
+    },
+    {
+      "user": "remember that server_d is in accra",
+      "expect": "remembered"
+    },
+    {
+      "user": "explain your last answer",
+      "expect": "lagos"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "conditional_reminder",
+  "description": "Conditional prospective memory (§3.7): 'remind me when X appears in Y' stays silent for unrelated files and fires on the matching observation.",
+  "setup": {
+    "dirs": [
+      "downloads"
+    ]
+  },
+  "turns": [
+    {
+      "user": "remind me when report.pdf appears in downloads to flag it for review",
+      "expect": "remind"
+    },
+    {
+      "observe": true
+    },
+    {
+      "files": {
+        "downloads/notes.txt": "x"
+      },
+      "observe": true,
+      "expect_absent": "flag it for review"
+    },
+    {
+      "files": {
+        "downloads/report.pdf": "x"
+      },
+      "observe": true,
+      "expect": "flag it for review"
+    }
+  ]
+}
