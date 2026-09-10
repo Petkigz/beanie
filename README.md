@@ -67,7 +67,7 @@ src/beanie/
                   snapshots, trailing-30-day window report (suite delta, register movement,
                   VISION §5 level movement, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` / --tick runs the idle budget
-Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
+Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
@@ -80,8 +80,9 @@ tests/            131 tests incl. the conformance drift guard + T-test battery
 make setup test      # recreate .venv if needed, then run all tests
 make demo            # end-to-end demo: teaching→transfer, introspection, Q13 caveat,
                      # usefulness ratings, idle investigation, policy adaptation, Q15 transfer
-make suite           # longitudinal suite; archives each run + scorecard snapshot under results/
+make suite           # longitudinal suite; archives each run + register/score snapshots under results/
                      # and prints suite delta, register movement and the trailing-30-day window (Q31)
+make verify          # the weekly protocol in one command: tests + a tracked suite run
 make repl            # talk to a mind that persists in .beanie_state/
 # manual equivalents:
 python3 -m venv .venv && .venv/bin/pip install pytest -e .

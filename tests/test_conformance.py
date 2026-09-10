@@ -114,3 +114,13 @@ def test_register_header_score_claim_matches_the_table():
         )
     # any level present in the table but absent from the claim is also a drift
     assert set(actual) <= set(claims), f"levels not stated in the header: {set(actual) - set(claims)}"
+
+
+def test_every_vision_test_has_an_executable_probe():
+    """VISION §5 defines T1–T13; each must be exercised somewhere in tests/."""
+    vision = (ROOT / "VISION.md").read_text(encoding="utf-8")
+    defined = sorted({int(n) for n in re.findall(r"\*\*T(\d+)\*\*", vision)})
+    assert len(defined) >= 13, f"VISION §5 lost test definitions: {defined}"
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "tests").glob("test_*.py"))
+    missing = [f"T{n}" for n in defined if not re.search(rf"\bT{n}\b", corpus)]
+    assert not missing, f"VISION tests with no executable probe: {', '.join(missing)}"

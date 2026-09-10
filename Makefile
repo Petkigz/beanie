@@ -9,7 +9,7 @@ BIN    := $(VENV)/bin
 PIP    := $(BIN)/pip
 PYTEST := $(BIN)/python -m pytest
 
-.PHONY: setup test demo suite repl clean
+.PHONY: setup test demo suite verify repl clean
 
 setup:
 	$(PY) -m venv $(VENV)
@@ -24,6 +24,13 @@ demo: setup
 	$(BIN)/python examples/demo_mind.py
 
 suite: setup
+	$(BIN)/python -m beanie.measure --suite-dir suites --track-dir results
+
+# the weekly protocol in one command (ARCHITECTURE §8 / Q31): tests, then the
+# tracked suite run (archives results/, prints suite delta, register movement,
+# score composition, trailing-30-day window, calibration and usefulness)
+verify: setup
+	$(PYTEST) -q
 	$(BIN)/python -m beanie.measure --suite-dir suites --track-dir results
 
 repl: setup
