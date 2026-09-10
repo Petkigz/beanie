@@ -1,0 +1,26 @@
+{
+  "id": "gui_takeover",
+  "description": "Spoken takeover (row 47/§11.3): 'log me in to X' asks before the first action, completes after the owner's rule, stops at the action budget with the pause recorded, and 'continue' resumes the same goal to completion.",
+  "setup": {},
+  "turns": [
+    {"gui": {"screen": "github sign-in page", "actions": [
+        {"type": "click", "target": "Sign in", "reason": "perm path"},
+        {"type": "done", "reason": "reached the dashboard"}],
+     "say": ["log me in to github"], "expect": "you may gui_control"}},
+    {"user": "you may gui_control", "expect": "i may do that now"},
+    {"gui": {"screen": "github sign-in page", "actions": [
+        {"type": "click", "target": "Sign in", "reason": "perm path"},
+        {"type": "done", "reason": "reached the dashboard"}],
+     "say": ["log me in to github"], "expect": "completed under supervision"}},
+    {"gui": {"screen": "setup wizard", "actions": [
+        {"type": "click", "target": "step0"}, {"type": "click", "target": "step1"},
+        {"type": "click", "target": "step2"}, {"type": "click", "target": "step3"},
+        {"type": "click", "target": "step4"}, {"type": "click", "target": "step5"},
+        {"type": "click", "target": "step6"}, {"type": "click", "target": "step7"},
+        {"type": "done", "reason": "finished after resuming"}],
+     "say": ["take over and do the remaining setup steps"], "expect": "not finished"}},
+    {"gui": {"screen": "setup wizard — later",
+             "actions": [{"type": "done", "reason": "finished after resuming"}],
+     "say": ["continue"], "expect": "done"}}
+  ]
+}

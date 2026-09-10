@@ -66,7 +66,7 @@ class Scenario:
         if not isinstance(turns, list) or not turns:
             raise ValueError(f"scenario {path}: 'turns' must be a non-empty list")
         for turn in turns:
-            if not any(k in turn for k in ("user", "observe", "tick", "demo", "perform", "body", "query", "trace")):
+            if not any(k in turn for k in ("user", "observe", "tick", "demo", "perform", "body", "query", "trace", "gui")):
                 raise ValueError(f"scenario {path}: each turn needs 'user' or an action key")
             turn.setdefault("expect", "")
         return cls(
@@ -253,6 +253,30 @@ def run_scenario(scenario: Scenario, state_dir: Path, substrate_kind: str = "stu
                 for e in mind.trace.events
                 if not wanted or e.kind == wanted
             ]))
+        elif "gui" in turn:
+            # supervised takeover evidence (§11.3/row 47): the scenario stages
+            # the world (screen text + the tier's action script), the mind runs
+            # its REAL gate/navigator, and the runner puts the original
+            # substrate and every override back afterwards
+            from .automation import VirtualGUIDriver
+            from .substrate import StubSubstrate
+
+            spec = dict(turn["gui"])
+            driver = VirtualGUIDriver(screens=[str(spec.get("screen", "setup wizard"))])
+            base_substrate, base_override = mind.substrate, mind._gui_driver_override
+            mind.substrate = StubSubstrate(scripted_gui_actions=list(spec.get("actions", [])))
+            mind._gui_driver_override = driver
+            try:
+                last = ""
+                for sentence in spec.get("say", ["log me in to github"]):
+                    reply = mind.step(str(sentence))
+                    last = reply.text
+                haystacks.append(last)
+                haystacks.append(json.dumps({"executed": driver.executed}))
+                haystacks.append(json.dumps(mind._gui_paused is not None))
+            finally:
+                mind.substrate = base_substrate
+                mind._gui_driver_override = base_override
         else:
             reply = mind.step(turn["user"])
             haystacks.extend([reply.text, " ".join(reply.reminders), " ".join(reply.questions)])

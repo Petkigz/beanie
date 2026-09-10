@@ -97,14 +97,14 @@ src/beanie/
                   voice in and out via browser speech APIs, same Mind.step as the CLI
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1),
                   plus the decision-gated body flows (§11)
-  measure.py      longitudinal suite runner: 25 tasks, action turns, register + score
+  measure.py      longitudinal suite runner: 26 tasks, action turns, register + score
                   snapshots, trailing-window report (suite delta, register + level movement,
                   stagnation prompt, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
                   the configured model tier, --audit-explanations runs the §9.9
                   faithfulness audit over every recorded decision
 Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
-suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
+suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
 tests/            255 tests incl. the conformance drift guard + T-test battery
