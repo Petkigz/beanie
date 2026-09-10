@@ -136,3 +136,32 @@ def test_readme_test_count_matches_the_battery():
         for path in (ROOT / "tests").glob("test_*.py")
     )
     assert int(match.group(1)) == actual, f"README says {match.group(1)} tests, battery has {actual}"
+
+
+def test_stagnation_ledger_covers_every_row_exactly_once():
+    """The register's 'say which' answer must account for every capability row."""
+    text = (ROOT / "CAPABILITY_REGISTER.md").read_text(encoding="utf-8")
+    _, found, rest = text.partition("## Stagnation ledger")
+    assert found, "the stagnation ledger is gone — the register's own rule is unanswered"
+    ledger = rest.split("\n## ", 1)[0]  # stop at the next section
+
+    listed: list[int] = []
+    for line in ledger.splitlines():
+        if not line.startswith("| "):
+            continue
+        first = line.strip("|").split("|")[0].strip()
+        if first and re.fullmatch(r"[\d,\s]+", first):
+            listed.extend(int(part.strip()) for part in first.split(",") if part.strip().isdigit())
+
+    duplicates = sorted({row for row in listed if listed.count(row) > 1})
+    assert not duplicates, f"ledger lists these rows more than once: {duplicates}"
+
+    capability_rows = sorted(
+        int(line.strip("|").split("|")[0].strip())
+        for line in text.splitlines()
+        if line.startswith("| ")
+        and line.strip("|").split("|")[0].strip().isdigit()
+        and len(line.strip("|").split("|")) == 6
+    )
+    missing = sorted(set(capability_rows) - set(listed))
+    assert not missing, f"ledger answers nothing for rows: {missing}"

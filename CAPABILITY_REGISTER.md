@@ -130,12 +130,12 @@ and, where one exists, its behavioral proxy:
 The rule at the top of this document says a row that stays at level 1 for three reviews is
 *either not real yet or not worth building — say which*. The suite now flags those rows
 mechanically (`print_stagnation`, three reviews = three archived tracked runs). Here is the
-answer for every group of rows, and it is two blockers plus one design gap — not a shrug:
+answer for every group of rows — two blockers and one definitional point, not a shrug:
 
 | Rows | Why still at level 1 | What would move it |
 |---|---|---|
-| 1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 23, 25, 26, 29, 30, 31, 32, 37, 38, 39, 40, 41, 42 | **Real, and hardcoded by construction** — a deterministic mechanism is in place and tested, so by this scale's own wording it is level 1, not level 2. Level 2 means the capability *happens spontaneously and unreliably* in open-ended conditions: that needs a real substrate and a history of runs the same tasks. | The same tasks run weekly for 30 days on a real tier, with the delta showing these mechanisms still holding when the input is not phrased for them. |
-| 7, 10, 17, 21, 27, 28, 33, 34, 36, 43 | **Gated on the model substrate** — the mechanism is built for the sandbox/text domain and honest about it (`(sandbox)` / `(data path)` / `P` in the scorecard). The words are not the capability: text-domain generalization is what level 2 would mean here. | `BEANIE_MODEL_URL` (the owner's action) → `--check-model` → weekly suite runs with `--substrate http`. |
+| 1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 23, 25, 26, 29, 30, 31, 32, 35, 37, 38, 39, 40, 41, 42 | **Real, and hardcoded by construction** — a deterministic mechanism is in place and tested, so by this scale's own wording it is level 1, not level 2. Level 2 means the capability *happens spontaneously and unreliably* in open-ended conditions: that needs a real substrate and a history of runs the same tasks. | The same tasks run weekly for 30 days on a real tier, with the delta showing these mechanisms still holding when the input is not phrased for them. |
+| 7, 10, 17, 21, 27, 28, 33, 34, 43 | **Gated on the model substrate** — the mechanism is built for the sandbox/text domain and honest about it (`(sandbox)` / `(data path)` / `P` in the scorecard). The words are not the capability: text-domain generalization is what level 2 would mean here. | `BEANIE_MODEL_URL` (the owner's action) → `--check-model` → weekly suite runs with `--substrate http`. |
 | 24 | **Gated on time** — the data path exists (family familiarity boosts proposals, one persistent per-family meta-lesson); "learning rate improves across families" is a longitudinal *property*. | Several weeks of runs with skills learned in more than one family. |
 | 36 | **Gated on time** — the T7 probe differences two histories; identity *fluidity over a long history* needs a long history. | Months of history, then the same probe. |
 
