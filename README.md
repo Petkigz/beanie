@@ -35,7 +35,9 @@ behavior, and identity grow out of its own experience and history.
 ```
 VISION.md · ARCHITECTURE.md · CAPABILITY_REGISTER.md   the spec (locked)
 suites/                        longitudinal-suite scenarios
-examples/demo_mind.py          end-to-end demo (T1/T2/T9/T10, reminders)
+examples/demo_mind.py          end-to-end demo: teaching→transfer, world model,
+                               introspection, Q13 caveat, ratings, idle investigation,
+                               policy adaptation, Q15 transfer (guarded by a test)
 src/beanie/
   records.py      record envelope: source, confidence, decay, revisions (§3)
   stores.py       all stores on JSONL: episodic/semantic/skills/self/owner/intentions (§3)
@@ -64,7 +66,7 @@ src/beanie/
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           22 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority, policy…
-tests/            108 tests incl. the conformance drift guard + T-test battery
+tests/            116 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Running it
