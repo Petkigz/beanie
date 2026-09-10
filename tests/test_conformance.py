@@ -165,3 +165,11 @@ def test_stagnation_ledger_covers_every_row_exactly_once():
     )
     missing = sorted(set(capability_rows) - set(listed))
     assert not missing, f"ledger answers nothing for rows: {missing}"
+
+
+def test_every_top_level_doc_is_linked_from_the_readme():
+    """A canon document nobody links to is a document nobody reads."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    docs = sorted(p.name for p in ROOT.glob("*.md") if p.name != "README.md")
+    missing = [name for name in docs if f"./{name}" not in readme]
+    assert not missing, f"top-level docs missing from the README: {missing}"

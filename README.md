@@ -14,6 +14,7 @@ behavior, and identity grow out of its own experience and history.
 | [VISION.md](./VISION.md) | The concept, the general-intelligence filter, the test battery (T1–T13) |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | The mind diagram turned into buildable layers + implementation status (§10) |
 | [CAPABILITY_REGISTER.md](./CAPABILITY_REGISTER.md) | The running audit: every capability scored 0–3, with the mechanism scorecard |
+| [REMAINING.md](./REMAINING.md) | What is left, and exactly what opens each remaining gate (the model tier, calendar time) |
 
 ## How the code is kept from drifting away from the vision
 
@@ -73,7 +74,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            150 tests incl. the conformance drift guard + T-test battery
+tests/            151 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)
