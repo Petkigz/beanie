@@ -137,6 +137,11 @@ notes = mind.tick()
 print(f"  policy note: {notes['policy'] or 'no adjustment due'}")
 print(f"  reflex word budget after:  {mind.policy.word_limit}")
 
+# 13b. owner tone observed, cited, acted on (excluded-capability proxy)
+print("\n=== owner tone (§3.5 affect observations) ===")
+say("this is broken, it keeps failing!")   # read from the owner's words, not guessed
+say("how am I doing?")                      # read-back, citing what was noticed
+
 # 14. knowledge transfer to a fresh mind (Q15)
 print("\n=== knowledge transfer (Q15) ===")
 child = Mind(state_dir=STATE.parent / f"{STATE.name}-child", authority="allow")
