@@ -168,3 +168,5 @@ material inputs and unbacked summaries all fail, and turns without a decision tr
 reported rather than passed. What it does *not* prove: that the trace captured everything
 the substrate did internally — that needs a model tier whose internals can be read, and it
 stays recorded as open in ARCHITECTURE §9.9 rather than papered over.
+
+**Level-2 promotion procedure:** see `FIRST_SESSION.md` — a step-by-step session whose echo of each row's behavior *is* the observed-evidence record; seven days of normal use + the checklist ticked and the register cells flip to level 2 in a conformity-checked commit.

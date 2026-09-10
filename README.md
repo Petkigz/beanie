@@ -15,6 +15,7 @@ behavior, and identity grow out of its own experience and history.
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | The mind diagram turned into buildable layers + implementation status (§10) |
 | [CAPABILITY_REGISTER.md](./CAPABILITY_REGISTER.md) | The running audit: every capability scored 0–3, with the mechanism scorecard |
 | [REMAINING.md](./REMAINING.md) | What is left, and exactly what opens each remaining gate (the model tier, calendar time) |
+| [FIRST_SESSION.md](./FIRST_SESSION.md) | The 30-minute golden path on a real machine — each step doubles as the level-2 evidence checklist |
 
 ## Why this over a bare chat model (LM Studio, ChatGPT, …)
 
