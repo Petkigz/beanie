@@ -1,0 +1,37 @@
+{
+  "id": "media_intent",
+  "description": "The owner's acceptance case (§11.1/§11.2, row 44/45): 'play me kaba' finds the song no matter how its file is named, an unknown song falls back to the streaming search honestly, and nothing claims playback the machine cannot do.",
+  "authority": "ask",
+  "setup": {
+    "dirs": ["downloads", "music"],
+    "files": {
+      "music/kaba.mp3": "x",
+      "music/wf_kaba_by_kapeke.m4a": "x",
+      "downloads/ka_bba_live.mpg": "x",
+      "downloads/invoice.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "user": "play me kaba",
+      "expect": "kaba.mp3"
+    },
+    {
+      "user": "play the kaba song by kapeke",
+      "expect": "wf_kaba_by_kapeke.m4a"
+    },
+    {
+      "user": "play the kabba video",
+      "expect": "ka_bba_live.mpg"
+    },
+    {
+      "user": "play me qzx neverthere anthem",
+      "expect": "youtube.com/results?search_query=qzx+neverthere+anthem",
+      "expect_absent": "Playing '"
+    },
+    {
+      "user": "find the kaba file",
+      "expect": "kaba.mp3"
+    }
+  ]
+}

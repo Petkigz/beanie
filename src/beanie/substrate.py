@@ -44,6 +44,18 @@ class Substrate(ABC):
     def deep(self, observation: dict[str, Any], context: list[dict[str, Any]], candidate: str) -> Outcome:
         """System-2 tier: verify, correct, or overrule the candidate."""
 
+    def propose_next_action(
+        self, goal: str, screen: str, history: list[dict[str, Any]]
+    ) -> Optional[dict[str, Any]]:
+        """GUI navigation planning (ARCHITECTURE §11.3): the next bounded GUI
+        action toward `goal` ({"type": "click"|"type"|"key"|"wait"|"done"|"fail", ...}),
+        or None when this tier cannot plan GUI actions.
+
+        None is an honest "I can't plan this", never a guess — the navigator
+        reports the goal as unplannable instead of inventing clicks.
+        """
+        return None
+
 
 class StubSubstrate(Substrate):
     """Deterministic test double for the loop (Stage 0; no intelligence claim).
@@ -86,9 +98,14 @@ class StubSubstrate(Substrate):
                        "A tool step returned unreliable output and I caught it; do not trust the result."),
     }
 
-    def __init__(self) -> None:
+    def __init__(self, scripted_gui_actions: Optional[list[dict[str, Any]]] = None) -> None:
         self.fast_calls = 0
         self.deep_calls = 0
+        self.scripted_gui_actions = (
+            list(scripted_gui_actions)
+            if scripted_gui_actions is not None
+            else list(type(self).scripted_gui_actions)
+        )
 
     def fast(self, observation: dict[str, Any], context: list[dict[str, Any]]) -> str:
         self.fast_calls += 1
@@ -122,3 +139,14 @@ class StubSubstrate(Substrate):
             fast_candidate=candidate,
             slow_candidate="deliberate: acknowledged",
         )
+
+    #: tests can script a sequence of GUI actions the "tier" would propose;
+    #: when the queue is empty the honest default (None) applies (§11.3)
+    scripted_gui_actions: list[dict[str, Any]] = []
+
+    def propose_next_action(
+        self, goal: str, screen: str, history: list[dict[str, Any]]
+    ) -> Optional[dict[str, Any]]:
+        if self.scripted_gui_actions:
+            return self.scripted_gui_actions.pop(0)
+        return None

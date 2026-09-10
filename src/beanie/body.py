@@ -24,6 +24,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -141,26 +142,150 @@ class SandboxBody:
 # --------------------------------------------------------------------------
 
 class OSBody:
-    """Real-process body — constructed only when BEANIE_BODY_OS=1 (§7, §9.5)."""
+    """Real-machine body — constructed only when BEANIE_BODY_OS=1 (§7, §9.5, §11.4).
 
-    def __init__(self, cwd: Optional[str] = None) -> None:
+    The capability surface of a real PC: shell, plus the §11.4 senses and hands —
+    open files/apps with their default application, open URLs in the default
+    browser, play media, install/uninstall software, and run tasks inside a
+    Docker sandbox when a job wants another OS or an isolated room.
+
+    `dry_run=True` (or BEANIE_BODY_DRYRUN=1) turns every action into the honest
+    plan for it ("would run: …") — used by previews, permission asks and tests.
+    """
+
+    def __init__(self, cwd: Optional[str] = None, dry_run: Optional[bool] = None) -> None:
         if os.environ.get("BEANIE_BODY_OS") != "1":
             raise RuntimeError("OSBody requires BEANIE_BODY_OS=1 (real OS actions are opt-in by design)")
         self.cwd = Path(cwd or os.getcwd())
+        self.dry_run = (
+            dry_run if dry_run is not None else os.environ.get("BEANIE_BODY_DRYRUN") == "1"
+        )
 
     @property
     def capabilities(self) -> dict[str, str]:
-        return {"shell": "runs a shell command in the owner's environment"}
+        return {
+            "shell": "runs a shell command in the owner's environment",
+            "open_file": "opens a file with the system's default application",
+            "open_url": "opens a URL in the default browser",
+            "play_media": "plays a media file with the system's default player",
+            "open_app": "launches an application by name",
+            "install_app": "installs software with the OS package manager (dangerous)",
+            "uninstall_app": "removes software with the OS package manager (dangerous)",
+            "docker_run": "runs a task inside a docker container sandbox (dangerous)",
+        }
 
-    def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        if capability != "shell":
-            raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
-        args = args or {}
-        command = str(args["command"])
+    # -- command builders (pure: testable without touching the machine) ----
+
+    def _platform(self) -> str:
+        name = sys.platform.lower()
+        if name.startswith("win"):
+            return "windows"
+        if name == "darwin":
+            return "macos"
+        return "linux"
+
+    def _package_manager(self, action: str, package: str) -> list[str]:
+        """Install/uninstall command for the current platform (§11.4)."""
+        if action == "install":
+            return {
+                "windows": ["winget", "install", "--id", package, "-e"],
+                "macos": ["brew", "install", package],
+                "linux": ["sudo", "apt-get", "install", "-y", package],
+            }[self._platform()]
+        return {
+            "windows": ["winget", "uninstall", "--id", package, "-e"],
+            "macos": ["brew", "uninstall", package],
+            "linux": ["sudo", "apt-get", "remove", "-y", package],
+        }[self._platform()]
+
+    def _open_command(self, target: str, *, url: bool = False) -> list[str]:
+        """Open a file/URL with the system default handler (the OS picks the app)."""
+        if self._platform() == "windows":
+            return ["cmd", "/c", "start", '""', target]
+        if self._platform() == "macos":
+            return ["open", target]
+        return ["xdg-open", target]
+
+    def _docker_command(self, image: str, command: str = "") -> list[str]:
+        cmd = ["docker", "run", "--rm"]
+        if command:
+            cmd += [image] + shlex.split(command)
+        else:
+            cmd += [image]
+        return cmd
+
+    # -- execution --------------------------------------------------------
+
+    def _execute(self, command: list[str], *, detach: bool, timeout: int) -> dict[str, Any]:
+        """Run one action, or return the honest plan for it in dry-run."""
+        pretty = shlex.join(command)
+        if self.dry_run:
+            return {"dry_run": True, "would_run": pretty}
+        if detach:
+            subprocess.Popen(command, cwd=self.cwd,  # noqa: S603 — explicit opt-in body
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"detached": True, "ran": pretty}
         result = subprocess.run(  # noqa: S603 — explicit opt-in body
-            shlex.split(command), cwd=self.cwd, capture_output=True, text=True, timeout=int(args.get("timeout", 30))
+            command, cwd=self.cwd, capture_output=True, text=True, timeout=timeout
         )
         return {"returncode": result.returncode, "stdout": result.stdout[-4000:], "stderr": result.stderr[-2000:]}
+
+    def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        handler: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = getattr(self, f"_op_{capability}", None)
+        if handler is None:
+            raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
+        try:
+            return handler(args or {})
+        except BodyError:
+            raise
+        except OSError as exc:
+            raise BodyError(f"{capability} failed: {exc}", kind="os_error") from exc
+
+    def _op_shell(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._execute(shlex.split(str(args["command"])), detach=False,
+                             timeout=int(args.get("timeout", 30)))
+
+    def _op_open_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._execute(self._open_command(str(args["path"])), detach=True,
+                             timeout=int(args.get("timeout", 30)))
+
+    def _op_open_url(self, args: dict[str, Any]) -> dict[str, Any]:
+        url = str(args["url"])
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        return self._execute(self._open_command(url, url=True), detach=True,
+                             timeout=int(args.get("timeout", 30)))
+
+    def _op_play_media(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._execute(self._open_command(str(args["path"])), detach=True,
+                             timeout=int(args.get("timeout", 30)))
+
+    def _op_install_app(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._execute(self._package_manager("install", str(args["package"])), detach=False,
+                             timeout=int(args.get("timeout", 600)))
+
+    def _op_uninstall_app(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._execute(self._package_manager("uninstall", str(args["package"])), detach=False,
+                             timeout=int(args.get("timeout", 600)))
+
+    def _op_open_app(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Launch an application by name, platform-natively (§11.8)."""
+        app = str(args["app"])
+        if self._platform() == "windows":
+            command = ["cmd", "/c", "start", '""', app]
+        elif self._platform() == "macos":
+            command = ["open", "-a", app]
+        else:
+            command = [app]
+        return self._execute(command, detach=True, timeout=int(args.get("timeout", 30)))
+
+    def _op_docker_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self.dry_run and shutil.which("docker") is None:
+            raise BodyError("docker is not installed or not on PATH", kind="missing_tool")
+        return self._execute(
+            self._docker_command(str(args["image"]), str(args.get("command", ""))),
+            detach=False, timeout=int(args.get("timeout", 300)),
+        )
 
 
 # --------------------------------------------------------------------------

@@ -1,4 +1,5 @@
-"""Effort allocation (§4.6) + budgeted idle exploration (R3.24 / register row 21)."""
+"""Effort allocation (§4.6) + budgeted idle exploration (R3.24 / register row 21)
++ the bounded pre-flight adversarial pass (§4.7 / register row 14)."""
 
 from beanie import Mind
 from beanie.substrate import StubSubstrate
@@ -39,7 +40,37 @@ def test_high_stakes_uses_deep_verified(tmp_path):
     assert substrate.deep_calls == 1
     decisions = [e for e in mind.trace.events if e.kind == "decision"]
     assert decisions[-1].payload["depth"] == "deep_verified"
-    assert "concerns" in decisions[-1].payload  # the devil's advocate ran
+    # the pre-flight pass really ran: on a clean, confident turn it reports
+    # finding no contradicting evidence — a mere "key exists" assertion let the
+    # check die silently once before (FailureTaxonomy.NONE is truthy)
+    concerns = decisions[-1].payload["concerns"]
+    assert concerns and all(c.get("kind") == "none" for c in concerns)
+
+
+def test_pre_flight_finds_contradiction_history_about_the_subject(tmp_path):
+    """§4.7 regression: the adversarial pass must see the stored contradiction.
+
+    Row 14 wired but inert (a truthiness bug) until 2026-09-10: with a
+    supersession on record, a high-stakes turn about that subject must surface
+    a named concern, lose confidence, and cite the losing alternative in its
+    explanation (§4.5/T10).
+    """
+    mind = Mind(state_dir=tmp_path / "mind")
+    mind.step("remember that london is lovely")
+    mind.step("remember that london is rainy")  # newer statement supersedes (T2)
+    reply = mind.step("please delete the permanent london folder forever")
+    assert reply.success
+
+    decisions = [e for e in mind.trace.events if e.kind == "decision"]
+    concerns = decisions[-1].payload["concerns"]
+    assert any(c.get("kind") == "contradiction_history" for c in concerns), concerns
+    assert decisions[-1].payload["residual"]  # the concern is on the record
+    # a real concern costs real confidence (bounded §4.7): below the unflagged 0.95→0.97
+    assert decisions[-1].payload["calibration"].get("concerns")
+
+    explanation = mind.explain(turn_id=reply.turn_id)
+    assert "Alternatives I considered and set aside" in explanation
+    assert "contradiction_history" in explanation
 
 
 def test_long_routine_questions_use_deep_not_reflex(tmp_path):

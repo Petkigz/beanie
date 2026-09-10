@@ -16,7 +16,8 @@ up the scale, and the roadmap stage it lands in.
 actually reached today; **Stage** is the roadmap stage the row is planned into (they are
 different columns and a row can legitimately be scored 1 while staged 4).
 
-*Current scores (2026-09-10):* **41 rows at level 1, 2 rows at level 0, 0 rows above level 1.**
+*Current scores (2026-09-10):* **49 rows at level 1, 2 rows at level 0, 0 rows above level 1.**
+*(rows 44–51, the real-machine embodiment set, entered at level 1 with this same review: mechanisms implemented, deterministic and tested — spawning real apps on the owner's PC is the level-2 evidence gate.)*
 Level 1 means "a deterministic mechanism is in place and tested" — by this scale's own
 definition that is *hardcoded/scripted, not emergent*. Levels 2–3 require the capability
 to show up spontaneously and then reliably, which needs a real model substrate **and**
@@ -105,6 +106,19 @@ say which.
 | 42 | Preference discovery — from statements *and* history, adopted or confirmed (VISION T4) | Behavior (§6 → owner model) | Explicit "I prefer X over Y" learned; repeated same-topic corrections yield a *proposed* preference that only explicit owner confirmation activates | 2→4 | 1 |
 | 43 | Domain-general abstraction — a rule learned in one domain applied, unchanged, in a structurally similar one it has never seen (VISION T6, R2.15) | Behavior (§4.1 planning; §7 body) | T6: "group by type" demonstrated on documents/images carries to file kinds never demonstrated (`.png` beside `.jpg`), while categories the demo never covered are refused and asked about instead of guessed | 4 | 1 |
 
+## Embodiment on the real machine (§11)
+
+| # | Capability (source) | Kind | Evidence / test | Stage | Score |
+|---|---|---|---|---|---|
+| 44 | Whole-PC semantic file sense — an Everything-class index (owner ask) | Senses (§11.2) | `FileIndex` finds media regardless of naming ("play me kaba" → kaba.mp3 / wf names), near-spelling lands, nothing→zero hits never a fabricated path; incremental rebuild + state persistence tested | 3 | 1 |
+| 45 | Local-first media play with streaming fallback (owner ask) | Behavior (§11.2) | PC's own copy always wins; missing media opens the YouTube top result *and says which*; find→play→fallback matrix through the gate tested | 3 | 1 |
+| 46 | Decision gate — the need is classified before a tool is chosen (owner ask: "the biggest problem") | Behavior (§11.1) | `DecisionGate.classify`: deterministic kinds (play/install/phone/web/learn…), danger flagged not guessed, ambiguous→model-assisted into the same bounded vocabulary; unknown stays unknown; end-to-end flows tested | 4 | 1 |
+| 47 | GUI navigation — sense→propose→act→sense on screens (R1.5 body half) | Body (§11.3) | Navigator loop + virtual/pyautogui limbs: per-action authority, action budget, "unplannable" reported instead of guessed clicks; gate blocks operation until allowed | 3 | 1 |
+| 48 | Phone as a limb driven from the PC (owner ask) | Body (§11.5) | adb driver (opt-in) + virtual double; availability discovered not asserted; navigator drives phone screens with the same loop | 3 | 1 |
+| 49 | Voice both directions (owner ask) | Senses (§11.6/§11.7) | Platform TTS opt-in + honest no-engine/no-transcription answers; WebUI voice in/out via browser speech APIs implemented in glass | 3 | 1 |
+| 50 | Professional web window with voice; Android companion (owner ask) | Interface (§11.7) | stdlib WebUI serves dark chat + state panel → real dialogue through `Mind.step`, permission asks & episodes visible over the wire; Android WebView shell (untested here, declared) | 3 | 1 |
+| 51 | Declare-and-plan learning (Gap detection: "I need to learn this first" — owner ask) | Behavior (§11.1 learn) | Unknown how-to requests record a learning task + open question and say so; model tier teaches first drafts clearly marked as unverified | 4 | 1 |
+
 ---
 
 ## Deliberately excluded — not milestones
@@ -138,6 +152,7 @@ answer for every group of rows — two blockers and one definitional point, not 
 | 7, 10, 17, 21, 27, 28, 33, 34, 43 | **Gated on the model substrate** — the mechanism is built for the sandbox/text domain and honest about it (`(sandbox)` / `(data path)` / `P` in the scorecard). The words are not the capability: text-domain generalization is what level 2 would mean here. | `BEANIE_MODEL_URL` (the owner's action) → `--check-model` → weekly suite runs with `--substrate http`. |
 | 24 | **Gated on time** — the data path exists (family familiarity boosts proposals, one persistent per-family meta-lesson); "learning rate improves across families" is a longitudinal *property*. | Several weeks of runs with skills learned in more than one family. |
 | 36 | **Gated on time** — the T7 probe differences two histories; identity *fluidity over a long history* needs a long history. | Months of history, then the same probe. |
+| 44, 45, 46, 47, 48, 49, 50, 51 | **Gated on the owner's live machine** — the §11 embodiment set: mechanisms deterministic and tested end-to-end (virtual limbs, dry-run previews, the `media_intent` suite task), but level 2 means these *repeatedly succeed on the real PC* — spawning apps, playing media, navigating screens on the owner's actual setup. A CI sandbox can never supply that evidence. | Owner opt-ins (`BEANIE_BODY_OS=1`, LM Studio up, adb connected) → real sessions, then logged wins/failures per flow over weeks. |
 
 Nothing here is "not worth building"; if that ever becomes true for a row, the verdict goes
 in this table and the row is retired from the scorecard rather than left to rot. The ledger
@@ -200,9 +215,16 @@ still gated on the model substrate.
 | T7 | 1 (data probe) | Two histories produce measurably different identity summaries traceable to corrections/skills vs. preferences, same code, same prompts |
 | T8 | 1 | `calibration_report()` per-label accuracy over trace outcomes, printed by every suite run; labels beat the unlabeled baseline |
 | T13 | 1 | EffortPolicy adapts the reflex budget on failures, low ratings and abandonment, persists changes with reasons, and survives restarts |
+| 44–45 | 1 | `FileIndex` (Everything-class: incremental multi-root, kind hints, fuzzy near-spelling, citable why, honest-zero) + the local-first media flow through the gate: found→permission→launch, missing→YouTube top result *labeled* as such; 7 index tests + 12 end-to-end decision-flow tests + the `media_intent` suite task all passing |
+| 46 | 1 | `DecisionGate.classify` (§11.1): nine deterministic need kinds + danger classification + model-assisted routing into the same bounded vocabulary; an invalid or failed tier classification returns `unknown`, never a guess; chatter never pays for classification (§4.6 regression guarded) |
+| 47 | 1 | `Navigator` (§11.3): vision-tier proposals executed through the authority gate one at a time, action budget, and three honest exits — `unplannable` (no action proposed = nothing clicked), `budget` (paused, not "done"), `needs_permission` (with the exact grant phrase); virtual + pyautogui limbs interchangeably |
+| 48 | 1 | `ADBDriver` (§11.5) behind `BEANIE_ANDROID=1`; availability is probed (`adb devices`), never asserted; the phone answers the same navigator loop as the desktop; no-phone states reply "isn't connected — nothing was attempted" |
+| 49 | 1 | `Voice` (§11.6): TTS via platform engines (Windows SAPI / macOS `say` / Linux espeak·spd-say), opt-in via `BEANIE_VOICE=1`, dry-run "would speak" never claims sound; transcription honestly gated on an installed engine with the WebUI's zero-install browser route pointed out |
+| 50 | 1 | `webui.py` (§11.7): stdlib server + embedded dark chat page; dialog goes through the real `Mind.step` (labels, reminders, permission asks all over the wire), state endpoint reports real counters, text-to-speech + speech-recognition via browser APIs; tested end-to-end over HTTP; `android_app/` WebView shell ships (Android Studio builds it; sandbox cannot compile it and says so) |
+| 51 | 1 | Learning-task declaration flow (§11.1): unknown how-to requests log an open question + trace the plan (research → watch → sandbox-practice → skill) instead of improvising; with a live tier the first draft answer is labeled as unverified model knowledge |
 | Q13 | 1 | A successful answer the evidence does not back (<0.55 calibrated) carries an explicit caveat and opens a recorded residual gap |
 | Q15 / R2.15 | 1 | `export_knowledge()` / `import_knowledge()` transfer confirmed skills, facts and preferences between minds without sharing episodes; the receiving mind performs the taught goal |
-| Q31 / §8 | 1 | Longitudinal suite of 24 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
+| Q31 / §8 | 1 | Longitudinal suite of 25 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run is archived together with a machine-readable scorecard snapshot, so both halves of the tracked number are covered — the runner prints the suite delta vs. the previous run, *this scorecard's row movement*, and the trailing-30-day window report (pass rate, per-task turn delta, register movement, calibration, usefulness signals) |
 | §8 signals | 1 | Explicit rating, correction, follow-up and abandonment all recorded per turn; the suite prints ratings by label and implicit signal counts |
 | §9 (storage scale) | 1 | Appends to every store are flat-rate: the new entry is written as one line, and the file is rewritten only when an entry was actually revised, so a long-lived mind's per-turn cost no longer grows with history (measured 18× faster seeding of a 1500-fact history; a perf test guards the regression). Memory stays the source of truth and disk always matches it — durability tests cover append, revise, explicit save and reload. The remaining §9 question (graph/relational/embedding recall at true human scale) is untouched and honestly still open |
 | §2 (substrate seam) | 1 | The real-model tier is a tested seam, not a promise: configuration validation with a message naming what is missing, two-tier calls over any OpenAI-compatible endpoint, the System-1 candidate passed to the System-2 tier, hedging mapped to the failure taxonomy, unreachable tiers reported honestly, an escalated turn is not paid for twice, and tracked runs are attributed to their substrate so model runs never pollute the stub baseline — all exercised against a local mock server (no external calls). `--check-model` and `--substrate http` make the owner's endpoint action one command |

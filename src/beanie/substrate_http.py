@@ -4,12 +4,16 @@ Traceability: ARCHITECTURE §2 — the substrate is swappable and identity never
 lives in it. This adapter exists so a real model can be wired in behind the
 same interface once model access exists.
 
-Configuration (environment): BEANIE_MODEL_URL (e.g. https://api.openai.com/v1),
-BEANIE_MODEL_NAME (e.g. gpt-4o-mini), BEANIE_API_KEY. If unset, constructing
-the adapter raises RuntimeError with a clear message. `--substrate http` on the
-suite runner and `--check-model` on the CLI both use this adapter, so the
-moment an endpoint is configured the whole loop and the longitudinal suite run
-against it.
+Configuration (environment): BEANIE_MODEL_URL (e.g. https://api.openai.com/v1 or a
+local LM Studio server at http://localhost:1234/v1), BEANIE_MODEL_NAME
+(defaults to ``local-model``, which single-model local servers answer to
+regardless), BEANIE_MODEL_FAST_NAME (optional separate System-1 model),
+BEANIE_API_KEY (optional — local servers like LM Studio need none; the
+Authorization header is only sent when a key is set). If the URL is unset,
+constructing the adapter raises RuntimeError with a clear message.
+``--substrate http`` on the suite runner and `--check-model` on the CLI both
+use this adapter, so the moment an endpoint is configured the whole loop and
+the longitudinal suite run against it.
 
 Tests never touch an external endpoint: `tests/test_substrate_http.py` starts a
 local OpenAI-compatible mock server on 127.0.0.1 and exercises the adapter
@@ -52,12 +56,15 @@ _HEDGE_RE = re.compile(r"\b(ambiguous|not sure|unclear|unsure|missing context|ca
                        re.IGNORECASE)
 
 
-def _chat(base_url: str, api_key: str, model: str, messages: list[dict[str, str]], max_tokens: int) -> str:
+def _chat(base_url: str, api_key: str, model: str, messages: list[dict], max_tokens: int) -> str:
     body = json.dumps({"model": model, "messages": messages, "max_tokens": max_tokens}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:  # local servers (LM Studio) need none — the header is only sent when set
+        headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/chat/completions",
         data=body,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 (configurable endpoint)
@@ -79,10 +86,10 @@ class HTTPSubstrate(Substrate):
         fast_model: str | None = None,
     ) -> None:
         self.base_url = base_url or os.environ.get("BEANIE_MODEL_URL")
-        self.model = model or os.environ.get("BEANIE_MODEL_NAME")
-        self.api_key = api_key or os.environ.get("BEANIE_API_KEY")
-        self.fast_model = fast_model or self.model
-        missing = [name for name, value in (("BEANIE_MODEL_URL", self.base_url), ("BEANIE_MODEL_NAME", self.model), ("BEANIE_API_KEY", self.api_key)) if not value]
+        self.model = model or os.environ.get("BEANIE_MODEL_NAME") or "local-model"
+        self.api_key = api_key or os.environ.get("BEANIE_API_KEY") or ""
+        self.fast_model = fast_model or os.environ.get("BEANIE_MODEL_FAST_NAME") or self.model
+        missing = [name for name, value in (("BEANIE_MODEL_URL", self.base_url), ("BEANIE_MODEL_NAME", self.model)) if not value]
         if missing:
             raise RuntimeError(f"HTTPSubstrate requires {', '.join(missing)} to be configured.")
 
@@ -137,3 +144,35 @@ class HTTPSubstrate(Substrate):
             slow_candidate=text,
             meta={"label": confidence_label(confidence)},
         )
+
+    def propose_next_action(
+        self, goal: str, screen: str, history: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Plan one GUI action (§11.3): the tier reads a textual rendering of the
+        screen (accessibility tree / OCR lines from the driver) and must reply
+        with one JSON action. A response that is not one bounded action is not
+        executed — the navigator reports the goal as unplannable instead.
+        """
+        system = (
+            "You are Beanie's GUI navigation tier. The user shows you a screen as text and asks you "
+            "for exactly ONE next action toward a goal. Reply with ONLY a JSON object: "
+            '{"type": "click"|"type"|"key"|"wait"|"done"|"fail", "target": "what to click or the text to type", '
+            '"reason": "one short clause"}. Coordinates are not known to you; always name the target by its '
+            "visible label. Reply {\"type\": \"fail\"} when the goal cannot be reached from this screen."
+        )
+        rendered_history = "\n".join(
+            f"{h.get('type')}: {h.get('target', '')} -> {h.get('note', '')}" for h in history[-6:]
+        )
+        user = f"GOAL: {goal}\nPREVIOUS ACTIONS:\n{rendered_history or '(none)'}\nCURRENT SCREEN:\n{screen[:3000]}"
+        try:
+            text = _chat(
+                self.base_url, self.api_key, self.model,
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                max_tokens=200,
+            ).strip()
+            action = json.loads(text[text.index("{"): text.rindex("}") + 1])
+        except (urllib.error.URLError, OSError, ValueError, KeyError):
+            return None  # honest: this tier could not plan an action
+        if action.get("type") not in ("click", "type", "key", "wait", "done", "fail"):
+            return None
+        return action

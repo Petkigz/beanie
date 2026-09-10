@@ -19,6 +19,7 @@ perform_goal, an allow rule, or a permission answer — the four states of §5.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,9 +29,10 @@ from .affect import AffectObserver
 from .analogy import CATEGORY_LABEL, demonstrated_categories
 from .attention import NoveltyDetector
 from .belief import ContradictionEngine, DecayMonitor
-from .body import AuthorityGate, BodyError, SandboxBody, parse_authority_statement
+from .body import AuthorityGate, BodyError, OSBody, SandboxBody, parse_authority_statement
 from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
+from .decision import DecisionGate, Need
 from .explain import ExplanationService
 
 from .intention import IntentionKeeper, parse as parse_intention
@@ -40,7 +42,9 @@ from .policy import EffortPolicy
 from .preferences import PreferenceMiner
 from .records import Entry, EvidenceRef, RecordKind, Source, confidence_label, utcnow_iso
 from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflector, StubReflector
+from .searchindex import FileIndex
 from .state import MindState
+from .streaming import google_search_url, youtube_search_url, youtube_top_result
 from .stores import Memory
 from .substrate import Outcome, StubSubstrate, Substrate
 from .simulate import Simulator, parse_what_if
@@ -227,6 +231,19 @@ class Mind:
         self.policy = EffortPolicy(self.memory)
         self.last_observed_reminders: list[str] = []
 
+        # The decision gate (§11.1): every action-flavored request is classified
+        # into a bounded need before any tool is touched. Ambiguous requests are
+        # assisted by a real model tier only — the deterministic stub's canned
+        # replies are not classifications, which keeps ambiguity honest.
+        self.decision_gate = DecisionGate(
+            self.substrate if self.substrate.name != "stub" else None
+        )
+        self.search_roots: Optional[list[Path]] = None
+        self._fileindex: Optional[FileIndex] = None
+        self._osbody: Optional[OSBody] = None
+        self._osbody_probed = False
+        self.youtube_fetcher = None  # injectable ResultsFetcher (tests never touch a network)
+
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
         self._last_episode_turn = ""
@@ -406,7 +423,15 @@ class Mind:
             self._organ_hint = "the usefulness tracker (§8) — your explicit rating was applied"
             return self._rate_last(turn_id, text, rating)
 
-        # 14) default cognition path (§4.1)
+        # 14) the decision gate (§11.1) — action-flavored requests are classified
+        # into bounded needs before any tool is touched; the reason travels with
+        # the need (citable), and whatever cannot be classified falls through to
+        # the default conversation path unchanged
+        need_replied = self._route_need(turn_id, text)
+        if need_replied is not None:
+            return need_replied
+
+        # 15) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
 
     def _introspect(self, turn_id: str, text: str) -> Reply:
@@ -695,7 +720,7 @@ class Mind:
             note = f" This replaces your earlier preference for {superseded}."
         for revision in reversed(entry.revision_history):
             if "confirmed by explicit" in revision.reason:
-                note = f" I had noticed this from your corrections and will apply it."
+                note = " I had noticed this from your corrections and will apply it."
                 break
         reply_text = f"Understood — I'll remember that you prefer {choice}.{note}"
         episode = self._record_episode(
@@ -1322,6 +1347,376 @@ class Mind:
     # Default cognition path
     # ======================================================================
 
+
+    # ======================================================================
+    # Decision-gated body flows (§11) — classified needs become real actions
+    # ======================================================================
+
+    def _route_need(self, turn_id: str, text: str) -> Optional[Reply]:
+        need = self.decision_gate.classify(text)
+        if need.kind == "play_media":
+            self._organ_hint = ("the decision gate + file index (\u00a711.1/\u00a711.2) — "
+                                "a media request routed to a real place")
+            return self._play_media(turn_id, text, need)
+        if need.kind == "search_file":
+            self._organ_hint = ("the decision gate + file index (\u00a711.1/\u00a711.2) — "
+                                "a find the machine actually searched")
+            return self._find_files(turn_id, text, need)
+        if need.kind == "open_app":
+            self._organ_hint = ("the decision gate + OS body (\u00a711.1/\u00a711.8) — "
+                                "an app to launch for real")
+            return self._open_app(turn_id, text, need)
+        if need.kind == "web":
+            self._organ_hint = ("the decision gate + OS body (\u00a711.1/\u00a711.8) — "
+                                "the web reached for openly")
+            return self._open_web(turn_id, text, need)
+        if need.kind in ("install_app", "uninstall_app", "shell", "docker_run"):
+            self._organ_hint = ("the decision gate + authority (\u00a711.1/\u00a75) — "
+                                "a system-changing need, permission first")
+            return self._execute_system_need(turn_id, text, need)
+        if need.kind == "phone":
+            self._organ_hint = ("the decision gate + android body (\u00a711.1/\u00a711.5) — "
+                                "the phone as a limb")
+            return self._handle_phone(turn_id, text, need)
+        if need.kind == "learn":
+            self._organ_hint = ("the decision gate + curiosity (\u00a711.1/\u00a74.3) — "
+                                "a declared learning task")
+            return self._learn_flow(turn_id, text, need)
+        return None
+
+    def _os_body(self) -> Optional[OSBody]:
+        """The real body — opt-in only, probed once (BEANIE_BODY_OS=1, §11.8)."""
+        if not self._osbody_probed:
+            self._osbody_probed = True
+            if os.environ.get("BEANIE_BODY_OS") == "1":
+                try:
+                    self._osbody = OSBody()
+                except RuntimeError:
+                    self._osbody = None
+        return self._osbody
+
+    def _file_index(self) -> FileIndex:
+        """The whole-PC index when the OS body is live, the sandbox otherwise (§11.2)."""
+        if self._fileindex is None:
+            roots = self.search_roots
+            if roots is None:
+                if self._os_body() is not None:
+                    home = Path.home()
+                    roots = [home / name for name in
+                             ("Documents", "Downloads", "Desktop", "Music", "Videos", "Pictures")
+                             if (home / name).is_dir()]
+                    if not roots:
+                        roots = [home]
+                else:
+                    roots = [self.body.root]
+            self._fileindex = FileIndex(roots=roots, state_file=self.state_dir / ".fileindex.json")
+        return self._fileindex
+
+    def _capability_permission(self, turn_id: str, capability: str, goal: str) -> tuple[str, str]:
+        """Four-state verdict for one capability the decision gate routed (§5):
+        returns ("act" | "ask" | "deny", owner-facing text)."""
+        permission = self.gate.check(capability)
+        if permission.allowed:
+            return "act", ""
+        if permission.state == "not_allowed":
+            self.trace.append(turn_id, "authority",
+                              {"blocked": capability, "goal": goal, "state": permission.state})
+            return "deny", f"You ruled {capability} out, so I won't do it."
+        existing = [e for e in self.memory.query(kind="owner_model", type="permission_request",
+                                                 capability=capability)
+                    if e.content.get("status") == "pending"]
+        if existing:
+            entry = existing[-1]
+            entry.content["count"] = int(entry.content.get("count", 1)) + 1
+            entry.content["last_goal"] = goal
+            entry.revise(f"asked again about {capability} ({entry.content['count']}x)", confidence=0.8)
+            count = int(entry.content["count"])
+        else:
+            entry = Entry(
+                id=self.memory.allocate_id(), kind=RecordKind.OWNER_MODEL,
+                content={"type": "permission_request", "capability": capability, "status": "pending",
+                         "count": 1, "first_goal": goal, "last_goal": goal},
+                source=Source.SELF_REFLECTION, confidence=0.8,
+            )
+            self.memory.owner_model.append(entry)
+            count = 1
+        self.memory.owner_model.save_all()
+        self.trace.append(turn_id, "authority",
+                          {"permission_request": capability, "count": count, "goal": goal})
+        if count == 1:
+            return ("ask", f"I can do this, but {capability} needs your permission first — "
+                           f"say 'you may {capability}' to allow it, or 'never use {capability}' to rule it out.")
+        return ("ask", f"This is the {_ordinal(count)} time {capability} has come up. A standing rule "
+                       f"('you may {capability}') would settle it for good.")
+
+    def _play_media(self, turn_id: str, text: str, need: Need) -> Reply:
+        """Local-first playback (§11.2, row 45): the PC's own copy always wins; a
+        song the machine does not have streams — and the reply says which happened."""
+        target = need.target.strip()
+        index = self._file_index()
+        index.build()
+        matches = index.search(target, limit=3)
+        body = self._os_body()
+        if matches:
+            top = matches[0]
+            name = Path(top.path).name
+            if body is None:
+                reply_text = (f"I found '{name}' at {top.path} ({top.why}). My OS body is opt-in and "
+                              f"off — set BEANIE_BODY_OS=1 and I can play it in your default player.")
+                confidence = 0.9
+            else:
+                verdict, question = self._capability_permission(turn_id, "play_media", target)
+                if verdict == "act":
+                    body.run("play_media", {"path": top.path})
+                    reply_text = (f"Playing '{name}' in your default player — the closest match on "
+                                  f"this machine ({top.why}). If that's not the one, tell me and I'll try the next.")
+                elif verdict == "deny":
+                    reply_text = question + f" I had '{name}' ready at {top.path}."
+                else:
+                    reply_text = f"I found '{name}' at {top.path}. {question}"
+                confidence = 0.9
+        else:
+            url, specific = youtube_top_result(target, fetch=self.youtube_fetcher)
+            what = "the top result" if specific else "the search results"
+            if body is None:
+                reply_text = (f"Nothing like '{target}' exists anywhere this machine lets me see. "
+                              f"YouTube fallback: {url} — set BEANIE_BODY_OS=1 and I'll open it for you.")
+                confidence = 0.65
+            else:
+                verdict, question = self._capability_permission(turn_id, "open_url", target)
+                if verdict == "act":
+                    body.run("open_url", {"url": url})
+                    reply_text = f"'{target}' isn't on this machine, so I opened {what} for it on YouTube ({url})."
+                    confidence = 0.85
+                elif verdict == "deny":
+                    reply_text = question
+                    confidence = 0.9
+                else:
+                    reply_text = f"'{target}' isn't on this machine. I could open {what} on YouTube ({url}) — {question}"
+                    confidence = 0.7
+        self.trace.append(turn_id, "media", {
+            "target": target, "matched": matches[0].path if matches else None,
+            "alternatives": [m.path for m in matches[1:]], "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "play_media", "decision": need.to_dict(),
+                   "matched": matches[0].path if matches else None, "reply": reply_text})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _find_files(self, turn_id: str, text: str, need: Need) -> Reply:
+        """Whole-machine search the owner can audit (§11.2, row 44)."""
+        target = need.target.strip()
+        index = self._file_index()
+        index.build()
+        matches = index.search(target, limit=5)
+        if matches:
+            listing = "\n".join(f"  • {Path(m.path).name} — {m.path} ({m.why})" for m in matches)
+            reply_text = f"Found {len(matches)} match(es) for '{target}':\n{listing}"
+            confidence = 0.9
+        else:
+            reply_text = (f"I searched everywhere I can see and found nothing like '{target}' — "
+                          f"an honest zero, not a hidden miss.")
+            confidence = 0.65
+        self.trace.append(turn_id, "media", {
+            "target": target, "matches": [m.path for m in matches], "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "search_file", "decision": need.to_dict(),
+                   "matches": [m.path for m in matches]})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _open_app(self, turn_id: str, text: str, need: Need) -> Reply:
+        """Launch applications for real — or say plainly that the body is off (§11.8)."""
+        target = need.target.strip()
+        body = self._os_body()
+        if body is None:
+            reply_text = (f"Understood: open '{target}'. My OS body is opt-in and off "
+                          f"(BEANIE_BODY_OS=1); nothing was launched and I'm saying so plainly.")
+            confidence = 0.85
+        else:
+            verdict, question = self._capability_permission(turn_id, "open_app", target)
+            if verdict == "act":
+                body.run("open_app", {"app": target})
+                reply_text = f"Launching '{target}' now."
+            else:
+                reply_text = question
+            confidence = 0.9
+        self.trace.append(turn_id, "body", {"op": "open_app", "target": target,
+                                            "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "open_app", "decision": need.to_dict()})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _open_web(self, turn_id: str, text: str, need: Need) -> Reply:
+        """Open a page for real — a URL, or the honest top search result (§11.8)."""
+        target = need.target.strip()
+        is_url = need.reason == "an explicit site to open"
+        url = target if is_url else google_search_url(target)
+        body = self._os_body()
+        if body is None:
+            reply_text = (f"Understood: {url}. My OS body is opt-in and off — open it yourself, "
+                          f"or set BEANIE_BODY_OS=1 and I'll open pages for you.")
+            confidence = 0.85
+        else:
+            verdict, question = self._capability_permission(turn_id, "open_url", target)
+            if verdict == "act":
+                body.run("open_url", {"url": url})
+                reply_text = f"Opening {url}."
+            elif verdict == "deny":
+                reply_text = question
+            else:
+                reply_text = f"The page waiting on your word is {url}. {question}"
+            confidence = 0.9
+        if need.needs_learning:
+            self.curiosity.open_question(target[:60], "declared research need from a web request")
+            reply_text += (" And I logged it as something to learn — when my web-reading tier is "
+                           "wired I'll study what comes back, not just open tabs.")
+        self.trace.append(turn_id, "body", {"op": "open_url", "url": url, "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "web", "decision": need.to_dict(), "url": url})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _execute_system_need(self, turn_id: str, text: str, need: Need) -> Reply:
+        """System-changing needs: command preview first, authority always (§5, §11.4)."""
+        target = need.target.strip()
+        if need.kind in ("install_app", "uninstall_app"):
+            args: dict[str, Any] = {"package": target}
+        elif need.kind == "shell":
+            args = {"command": target}
+        else:  # docker_run: "image command…"
+            parts = target.split(None, 1)
+            args = {"image": parts[0], "command": parts[1] if len(parts) > 1 else ""}
+        body = self._os_body()
+        if body is None:
+            reply_text = (f"Understood: {need.kind} '{target}'. That changes the system, so even "
+                          f"with permission it needs my OS body — opt-in and off (BEANIE_BODY_OS=1). "
+                          f"Nothing ran.")
+            confidence = 0.85
+        else:
+            preview = OSBody(dry_run=True).run(need.kind, args)["would_run"]
+            verdict, question = self._capability_permission(turn_id, need.kind, target)
+            if verdict == "act":
+                try:
+                    result = body.run(need.kind, args)
+                except BodyError as exc:
+                    reply_text = f"I tried '{preview}' and the body reported: {exc}"
+                    confidence = 0.8
+                else:
+                    if "ran" in result or result.get("returncode", 0) == 0:
+                        tail = (result.get("stdout") or "").strip().splitlines()
+                        summary = (" — last line: " + tail[-1][:200]) if tail else ""
+                        reply_text = f"Done: {preview}{summary}"
+                    else:
+                        stderr = (result.get("stderr") or "").strip().splitlines()
+                        summary = (": " + stderr[-1][:200]) if stderr else ""
+                        reply_text = (f"It ran and failed (exit {result.get('returncode')}){summary} "
+                                      f"— that's the honest result, not a retry in disguise.")
+                    confidence = 0.9
+            elif verdict == "deny":
+                reply_text = question + f" The planned command was: {preview}"
+                confidence = 0.9
+            else:
+                reply_text = f"This would run: {preview}. {question}"
+                confidence = 0.85
+        self.trace.append(turn_id, "body", {"op": need.kind, "target": target, "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": need.kind, "decision": need.to_dict()})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _handle_phone(self, turn_id: str, text: str, need: Need) -> Reply:
+        """The phone as a limb — discovered, never asserted (§11.5, row 48)."""
+        from .android import ADBDriver, VirtualAndroidDriver, default_android_driver
+
+        driver = default_android_driver()
+        real_phone = isinstance(driver, ADBDriver) and driver.available()
+        if not real_phone:
+            reply_text = ("Your phone isn't connected (no adb device answering, or BEANIE_ANDROID "
+                          "isn't enabled). Plug it in with USB debugging on and ask again — "
+                          "nothing was attempted.")
+            confidence = 0.85
+        else:
+            verdict, question = self._capability_permission(turn_id, "phone", need.target)
+            if verdict == "act":
+                open_match = re.match(r"(?:open|launch|start)\s+(.+)", need.target.strip(), re.IGNORECASE)
+                if open_match:
+                    app = open_match.group(1).strip()
+                    try:
+                        driver.execute({"type": "open_app", "package": app})
+                        reply_text = f"Opening '{app}' on your phone."
+                    except BodyError as exc:
+                        reply_text = f"The phone rejected the open: {exc}"
+                elif self.substrate.name != "stub":
+                    reply_text = ("Connected. Phone navigation beyond opening apps uses the model "
+                                  "tier over the screen — the tier is set; describe the target screen "
+                                  "and I'll navigate to it when that loop ships with the phone driver.")
+                else:
+                    reply_text = ("Connected. I can open apps on it right now; navigating inside them "
+                                  "needs the model tier (my current one is the Stage-0 stub, and it "
+                                  "cannot read a screen).")
+            elif verdict == "deny":
+                reply_text = question
+            else:
+                reply_text = f"Your phone is connected. {question}"
+            confidence = 0.9
+        self.trace.append(turn_id, "phone", {"connected": real_phone, "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "phone", "decision": need.to_dict()})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _learn_flow(self, turn_id: str, text: str, need: Need) -> Reply:
+        """'I need to learn this first' is a first-class answer (§11.1, row 51),
+        never improvisation in disguise."""
+        target = need.target.strip()
+        self.curiosity.open_question(target[:60], "declared learning task from the decision gate")
+        if self.substrate.name != "stub":
+            outcome = self.substrate.deep(
+                {"user_text": f"Explain concisely, in under 120 words, how to: {target}"},
+                [], candidate="teach",
+            )
+            if outcome.success and outcome.text.strip():
+                reply_text = (
+                    outcome.text.strip()[:700]
+                    + "\n\n— from my model tier's general knowledge; I treat that as a draft until "
+                    "I've practiced it. The learning task is logged: research, then sandbox practice, "
+                    "then it becomes a real skill."
+                )
+                confidence = 0.75
+            else:
+                reply_text = (f"I don't know how to '{target}' yet and my tier couldn't teach it "
+                              f"either — saying so instead of improvising. The learning task is logged.")
+                confidence = 0.6
+        else:
+            reply_text = (
+                f"I don't know how to '{target}' yet — saying so instead of improvising. My plan: "
+                f"research it (web), watch how-to sources (vision), then practice in my sandbox until "
+                f"the demonstration learner turns it into a skill. Those research senses aren't wired "
+                f"yet, so the gap is logged as an open question, not faked."
+            )
+            confidence = 0.6
+        self.trace.append(turn_id, "learning_task", {"topic": target, "decision": need.to_dict()})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": text, "directive": "learn", "decision": need.to_dict()})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
     def _default_turn(self, turn_id: str, text: str) -> Reply:
         context = self.recall(text, limit=8)
         self.trace.append(turn_id, "perception", {"user_text": text[:200]})
@@ -1365,9 +1760,13 @@ class Mind:
             self.curiosity.open_question(text[:60], f"owner request left unresolved: {text[:160]}")
 
         # adversarial pre-flight only when the stakes justify it (§4.7 via §4.6)
+        # NOTE: FailureTaxonomy.NONE is a truthy enum member, so the "no failure"
+        # guard must compare against NONE explicitly — `not outcome.failure` is
+        # False even on success and silently disabled the whole check.
         concerns: list[dict] = []
         stakes = stakes_of(text)
-        if depth in ("deep", "deep_verified") and stakes and not outcome.failure and outcome.success:
+        failure_free = outcome.failure in (None, FailureTaxonomy.NONE)
+        if depth in ("deep", "deep_verified") and stakes and failure_free and outcome.success:
             concerns = self.devil.check(text, outcome.confidence)
 
         # calibration (T8): evidence state adjusts the substrate's confidence

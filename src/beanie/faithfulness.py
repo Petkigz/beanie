@@ -86,17 +86,9 @@ def resolve_ref(ref: str, *, trace: Trace, memory: Memory) -> Optional[dict[str,
                 return {"user_text": str(event.payload["user_text"])}
         return None
 
-    if "[" in rest and rest.endswith("]"):
-        kind, _, raw = rest.partition("[")
-        try:
-            index = int(raw[:-1])
-        except ValueError:
-            return None
-        events = [e for e in trace.events_for(turn_id) if e.kind == kind]
-        if not (0 <= index < len(events)):
-            return None
-        return dict(events[index].payload)
-
+    # decision refs first: `decision.concerns[i]` must reach the payload-index
+    # handling below, not the event-kind branch (there is no "decision.concerns"
+    # event kind — routed there, a real concern citation fails to resolve)
     if rest == "decision" or rest.startswith("decision."):
         decision = _turn_decision(trace, turn_id)
         if decision is None:
@@ -125,6 +117,17 @@ def resolve_ref(ref: str, *, trace: Trace, memory: Memory) -> Optional[dict[str,
         if tail == "reply":
             value = reply_snippet(value)
         return {tail: value}
+
+    if "[" in rest and rest.endswith("]"):
+        kind, _, raw = rest.partition("[")
+        try:
+            index = int(raw[:-1])
+        except ValueError:
+            return None
+        events = [e for e in trace.events_for(turn_id) if e.kind == kind]
+        if not (0 <= index < len(events)):
+            return None
+        return dict(events[index].payload)
     return None
 
 

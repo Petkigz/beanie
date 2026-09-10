@@ -428,21 +428,260 @@ substrate or longitudinal history for their full pass criterion (VISION §5).
 | 0 — Skeleton | **done** — loop, episodic store, trace + failure taxonomy, continuity (tests pass) |
 | 1 — Mind substrate | **done (mechanisms)** — all stores, envelope with decay, contradiction + contamination engine, calibrated labels, explanation service |
 | 2 — General learning | **done (mechanisms)** — demonstration learning with transfer (T1), correction handler (T4.4, T9), self-correction/repairs (T3), reflection (T4.3); document/video/image distillation is substrate-gated (`PromptedReflector`) |
-| 3 — Embodiment | **done (sandbox)** — capability body + four-state authority gate; real OS body behind `BEANIE_BODY_OS=1` opt-in |
+| 3 — Embodiment | **done (mechanisms, §11)** — sandbox body + four-state authority gate; the §11 organ layer is implemented end-to-end: decision gate, file index + media flow, OS body with dry-run previews (all opt-in `BEANIE_BODY_OS=1`), GUI navigation loop, adb phone limb, voice organ, stdlib WebUI + Android companion shell; LM Studio-ready tier defaults (`local-model`, keyless) |
 | 4 — Continuous cognition | **done (mechanisms)** — tick() budget loop: intentions (T3.7), decay sweep (T12), incubation revisits (T4.8), reflection schedule; novelty attention (T4.2); effort allocation + bounded devil's advocate (T4.6/4.7) |
 | 5 — Individual mind | **data path done** — reflection consolidation writes identity summaries (T7 data); `ConsolidationAdapter` seam for fine-tuning; long-horizon T6/T7 evidence still required |
 
 Module → spec map: `records` §3 envelope · `stores` §3.1–3.7 · `belief` §3.6 + T2/T11/T12 ·
-`calibration` T8/T13 · `learning` §6 + T1/T3/T9 · `preferences` §6/T4 · `body` §5/§7 ·
+`calibration` T8/T13 · `learning` §6 + T1/T3/T9 · `preferences` §6/T4 · `body` §5/§7/§11.4 ·
 `planning` T1/T3/T12/§4.8 · `simulate` Domain A / rows 10–11 (counterfactual replay over
 the body, never touching it) · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
 `cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1 (incl. relevance-aware recall,
-row 7, and the owner-belief layer, row 33).
+row 7, and the owner-belief layer, row 33) · `searchindex` §11.2 · `streaming` §11.2 ·
+`decision` §11.1 · `automation` §11.3 · `android` §11.5 · `voice` §11.6 · `webui` §11.7.
 
 Honesty ledger — what is *not* yet true: the default substrate is a documented test double
-(real tiers plug in via `HTTPSubstrate`); OS control and fine-tuning are opt-in seams; no
-register row has earned a 2 or 3 yet (they require observed, recurring behavior with a real
-substrate over time — VISION §5 scoring rules).
+(real tiers plug in via `HTTPSubstrate`; LM Studio is the intended local server — keyless,
+`local-model` default); the §11 organs are level-1 mechanisms — deterministic and tested
+end-to-end with virtual limbs and dry-run previews — while *repeatedly succeeding on the
+owner's live PC* is the level-2 gate none of rows 44–51 has crossed; OS control, GUI
+automation, the android body and fine-tuning remain opt-in seams; no register row has
+earned a 2 or 3 yet (they require observed, recurring behavior with a real substrate
+over time — VISION §5 scoring rules).
+
+---
+
+## 11. Embodiment on the real machine
+
+Stage 3 stopped at the sandbox body and an opt-in shell. This section is the design for
+Beanie operating the owner's actual computer — the human-shaped arrangement the owner
+asked for: one mind, with senses (eyes/file index), a voice (mouth/ears), and limbs
+(OS body, GUI navigator, phone) — each organ swappable, each honest about itself.
+
+### 11.1 The decision gate (owner's words: "the biggest problem")
+
+Between understanding a request and using anything, there is a gate that answers *what
+is actually being asked* — and never feeds the body a misclassified command.
+
+1. **Deterministic first.** `DecisionGate.classify` maps action-flavored phrases to a
+   bounded, closed vocabulary of needs: `play_media`, `search_file`, `open_app`,
+   `install_app`, `uninstall_app`, `shell`, `docker_run`, `phone`, `web`, `learn`,
+   `conversation`, `unknown`. Each carries `target`, `danger`, `needs_learning`, and a
+   citable `reason` (why this kind was chosen — the §9.9 audit trail starts here).
+2. **Danger is classified, not felt.** Installation, removal, shell, docker and any
+   destructive/side-effect phone action are always `danger=True`, which the authority
+   gate (§5) turns into an ask with a real command preview. The owner is at the top of
+   the permission chain; autonomy is default for the *non-dangerous* kinds only.
+3. **Model-assisted ambiguity.** When no deterministic rule fires and the request is
+   not ordinary conversation (greetings/questions never pay for classification, §4.6),
+   the deep tier classifies into the *same* vocabulary — a heuristic template against
+   the answer keeps it honest: an invalid or unreachable tier yields `unknown`, not a
+   guess; `unknown` says "I don't know how yet" and falls to conversation/curiosity.
+
+### 11.2 Senses — the file index (Everything-class) and media
+
+`searchindex.py` is the machine's sense of its own filesystem: a persistent,
+incrementally-refreshed `FileIndex` over one or more roots (user folders when the OS
+body is live; the sandbox root otherwise), with:
+
+* kind hints for media classes (`song`→audio… via the T6 category table, extended with
+  legacy formats like `.mpg`/`.m4a`); meta-words (`file`, notes/report…) never hijack
+  name-like terms;
+* scoring across basename tokens, stem-phrase (the bare name beats decorated variants),
+  directory words, and fuzzy near-spelling against token *and* bigram candidates —
+  "kabba" finds `ka_bba`, and the "why" is citable per hit;
+* honesty as a property: zero matches is an answer ("I couldn't find it"), never a
+  fabricated path (the acceptance test's `test_missing_files` stays green).
+
+Media is then *local-first*: "play X" resolves against the index, and only misses fall
+to `streaming.youtube_top_result`, which returns a watch URL *marked whether it is a
+specific video or only a search page* — the reply exposes exactly which happened.
+
+### 11.3 Hands & eyes — the GUI navigation loop
+
+`automation.py` runs the bounded sense→propose→act→sense loop: the driver reads the
+screen, the model tier proposes **one** next action from a closed vocabulary
+(`click/type/key/wait/done/fail`, extended per-driver — the phone adds
+`swipe/open_app`), the authority gate (§5) vets `gui_control` first, the limb executes,
+and the loop senses again. Honest exits: `unplannable` (no proposal → nothing clicked;
+guessing is never the fallback), `budget` (default 8 actions — §4.2 bounded cognition,
+"paused, not abandoned"), `needs_permission` (with the exact grant phrase),
+`failed` with the tier's own reason. Limbs: `VirtualGUIDriver` (scripted — what tests
+drive) and `PyAutoGUIDriver` (opt-in `BEANIE_AUTOMATION=1`; its `read_screen` honestly
+refuses — OCR is not the vision tier).
+
+### 11.4 The OS body — openers, installers, docker sandboxes
+
+`OSBody` (§7's opt-in real body) grows the higher-level hands: platform openers
+(`open`/`cmd /c start`/`xdg-open` for files, URLs and default-player media),
+application launches (`open -a`/binary name), package-manager install/uninstall
+(`winget`/`brew`/`apt-get`), and `docker run --rm` for tasks that want another OS or
+an isolated room (`shutil.which("docker")` honesty — missing tool is a `BodyError`,
+not a crash). All builders are pure functions, and `dry_run` (env
+`BEANIE_BODY_DRYRUN=1` or explicit) turns any action into its preview — the plan an
+owner reads before granting a dangerous command. A new capability is a new `_op_*`
+registered on `run()` — capability dispatch, never if/else ladders.
+
+### 11.5 The phone as a limb
+
+`android.py` gives the mind a second hand: the owner's Android device, driven over
+`adb` from the PC (opt-in `BEANIE_ANDROID=1`). States are *discovered*
+(`adb devices -l` → serial/state/model), never asserted — unplugged is "isn't
+connected — nothing was attempted". Screen reading is `uiautomator dump` text; pixels
+say so when the vision tier needs them (`screenshot()`); actions are `input
+tap/swipe/text/keyevent`, app launches are `monkey -p` intents. `VirtualAndroidDriver`
+answers the same interface so the §11.3 navigator runs phone and desktop with one loop.
+
+### 11.6 Voice — mouth and ears
+
+`voice.py`: the mouth is the platform's own engine (Windows SAPI via PowerShell,
+macOS `say`, Linux `espeak`/`spd-say`), opt-in `BEANIE_VOICE=1`, dry-run reports
+"would speak" — silent deception (`spoken: true` without sound) is a test-forbidden
+state. The ears are honest about the harder half: transcription exists when a
+`faster-whisper`/`speech_recognition` engine is installed, and its absence is
+*reported* with the zero-install alternative (browser speech recognition in §11.7)
+rather than faked.
+
+### 11.7 Windows into the mind — WebUI & Android companion
+
+`webui.py` is a stdlib-only `ThreadingHTTPServer` window: an embedded dark chat page
+(mic button via `webkitSpeechRecognition`, spoken answers via `speechSynthesis`
+— both in the page, zero installs) and a tiny JSON API where `POST /api/step` runs
+the *same* `Mind.step` the CLI calls. Reminders, permission asks and state counters
+(open questions, pending permissions, skills, episodes) travel over the wire — a
+browser is a second face on one mind, never a parallel fake. `android_app/` is the
+Kotlin WebView companion (host field + runtime mic permission) that turns a phone into
+that window on the LAN; this sandbox cannot compile it and its README says so.
+
+### 11.8 What stays true
+
+Everything from §1–§10 holds: LM Studio (or any OpenAI-compatible tier) can drive the
+classifier and the navigation proposals without new code — a local server is just
+`BEANIE_MODEL_URL=http://localhost:1234/v1`, no key required. No embodiment turns the
+sandbox semantics off: the tests and suites still run entirely inside the virtual
+body; the real machine is entered one permission answer at a time.
+
+## 11. Embodiment — the real PC (owner-directed)
+
+The owner's brief: Beanie must *actually use the computer* — see the files, play the
+music, open the apps, install and uninstall software, run the phone from the PC, and
+decide for itself *what knowledge or tool* a task needs. This section is the design;
+register rows 44–51 track the evidence.
+
+### 11.1 The decision gate — needs before tools (owner: "the biggest problem")
+
+Before *anything* executes, `DecisionGate.classify` (decision.py) maps the owner's
+utterance to a **bounded need vocabulary**
+(`play_media | search_file | open_app | install_app | uninstall_app | shell |
+docker_run | phone | web | learn | conversation | unknown`) with a `target`, a `danger`
+flag, and a citable `reason`. The discipline:
+
+1. **Deterministic rules first** — ordinary pattern-laden requests classify without
+   burning tokens, and the chosen kind always prints *why* (trace decision payload).
+2. **Danger is classified, not intuited** — install/uninstall/shell/docker are always
+   dangerous and land in the §5 four-state gate with the *exact command preview*
+   ("This would run: winget install …"); everything else defaults to autonomy.
+3. **Model assist only for genuinely ambiguous requests** — the deep tier must answer
+   in the same vocabulary; an unparseable or failed tier response yields `unknown`,
+   not a guess, and everyday chatter never pays for a classification (§4.6 guard: the
+   effort-budget regression test asserts no deep wake-up for "hi there").
+4. **Unknown is an answer** — an unclassifiable request is *said*, logged as a
+   curiosity gap, and falls through to ordinary conversation instead of guessing.
+
+Routing position: after all linguistic directives (reminders, corrections, beliefs,
+explanations, ratings), before plain conversation. The organ trail is in the turn's
+trace (`media`/`body`/`phone` events ⇢ `Mind.organ_hint`) so §9.9 can audit which
+organ answered, and why it thought it could.
+
+### 11.2 Senses — the file index (Everything-class) and streaming fallback
+
+`FileIndex` (searchindex.py) is the PC's filesystem sense: incremental multi-root
+scan skipping system/cache directories, persisted to a state file, refreshed
+incrementally by *mtime+size* so only changed files rescan, ghosts pruned. Search is
+semantic over names, not literal:
+
+* **kind hints** — "song/audio" → media categories from the analogy table (`mp3,
+  m4a, mpg…`), "video", "picture/photo/image", "document/pdf", "media" (either);
+* **fuzzy near-spelling** — every name token *and its adjacent-token bigrams* are
+  fuzzy candidates at `0.78` cutoff, so `kabba` lands `ka_bba.live.mpg` and says
+  "near spelling: kabba" as its reason;
+* **everything must match** — no partial-match fabrication; zero matches is an answer,
+  and a self-test (`missing files resolve to nothing`) guards it;
+* **bare name beats decorated** — `kaba.mp3` outranks `Kaba by Kapeke.m4a` for "kaba"
+  (extra bare-stem bonus), while "kaba by kapeke" finds the decorated file exactly.
+
+The source of truth for *what the machine holds*. `streaming.py` is the outside
+world: YouTube/Google URL builders + `youtube_top_result(query, fetch=…)` which
+resolves a specific `watch?v=` deep link when it can and honestly degrades to the
+labelled search-results URL when it cannot (network errors same answer). The play
+flow states which of the two happened — "opened the top result" vs "opened the search".
+
+### 11.3 Hands & eyes — GUI navigation loop (screen)
+
+`automation.py`: `Navigator.run(goal)` = sense → propose → gate → act → sense, with a
+hard action budget (default 8 — §4.2 boundedness) and the four-state authority gate in
+the loop at the top of *every* iteration (`gui_control`). Proposals come from the
+model tier's `propose_next_action(goal, screen, history)` — one small JSON action
+(`click/type/key/wait/done/fail` — drivers may extend the vocabulary, e.g. the phone's
+`swipe/open_app`). Outcomes and their honesty:
+
+- `completed` — the tier said done with its reason attached;
+- `budget` — "out of budget after N actions — paused, not abandoned" (never a fake win);
+- `unplannable` — no action proposed: **reported, never guessed** ("I say so instead
+  of guessing where to click");
+- `needs_permission` — with the exact grant phrase to copy ("you may gui_control");
+- `failed` — the tier's `fail` proposal or the limb's error, reported.
+
+Limbs: `VirtualGUIDriver` (scripted screens; tests/demo), `PyAutoGUIDriver` (opt-in
+`BEANIE_AUTOMATION=1`; *its `read_screen` refuses* — pixels are not text; a vision
+substrate turns screenshots into the screen summary the loop consumes).
+
+### 11.4 The OS body — openers, installers, docker sandboxes
+
+`OSBody` (body.py) — the real-machine body, opt-in only (`BEANIE_BODY_OS=1`), with
+`dry_run` ("would run: …") for previews, permission asks and tests. Platform-aware
+pure command builders: openers per OS (`cmd /c start`, `open`, `xdg-open`), app
+launch (`open -a`, direct binary), package managers (`winget`/`brew`/`apt-get install`
+and the matching uninstalls), `docker run --rm [image [cmd]]` sandboxes — missing
+docker raises a *missing tool* BodyError, never a confusing crash. Capabilities also
+include `shell`/`open_file`/`open_url`/`play_media`; all dispatched through the same
+`run(capability, args)` table as the sandbox body (§7), so plan executors, simulators
+and the authority gate keep working unchanged over the real body.
+
+### 11.5 The android body — the phone as a limb
+
+`android.py`: `ADBDriver` (opt-in `BEANIE_ANDROID=1`; constructor verifies adb exists
+on PATH) with *availability discovery* — `available()` runs `adb devices` and answers
+honestly whether a device is connected. Actions: tap/swipe/text/keyevent over
+`adb shell input`, app launch over `monkey`, screen text over `uiautomator dump`,
+screenshots over `exec-out screencap`. `VirtualAndroidDriver` mirrors the interface so
+the navigator drives the phone with the same loop as the desktop. When the mind sees
+no phone it says so plainly: *"…no adb device answering… nothing was attempted."*
+
+### 11.6 Voice — mouth and ears
+
+`voice.py`: the mouth uses the *platform's own engine* — Windows SAPI via PowerShell,
+macOS `say`, Linux `espeak`/`spd-say` — opt-in (`BEANIE_VOICE=1`), with dry-run
+reporting "would speak", never "I said it" when it didn't. The ears gate on an
+installed transcription engine (`faster-whisper` or `speech_recognition`); no engine
+is an honest *no_engine / no transcription engine installed* reply that *points at the
+WebUI's zero-install browser speech recognition* — the ear exists everywhere Chrome
+or Edge runs, even before anything is pip-installed.
+
+### 11.7 Windows into the mind — WebUI and Android companion
+
+`webui.py`: a stdlib `ThreadingHTTPServer` serving an embedded page (dark design, the
+owner's chat) plus a JSON API — `GET /` (the page), `POST /api/step` (a genuine
+`Mind.step` — the same loop the CLI uses, returned with labels/reminders/surfaced
+questions), `POST /api/tick` (background cognition report, flattened for display),
+`GET /api/state` (live counters: open questions, pending permissions, skills,
+episodes), `POST /api/explain` (the §9.9 validation trail). Voice runs in the browser:
+`webkitSpeechRecognition` for ears, `SpeechSynthesis` for mouth — no installs.
+The page also renders notice rows for reminders and proactive questions so nothing
+silent is lost. `android_app/` is the Kotlin WebView shell pointing at the same URL
+on the LAN (host setting persisted, runtime mic permission forwarded into the page);
+its README declares the sandbox couldn't compile it — Android Studio on the owner's
+machine is the build step, and that is stated, not implied.
 
 ---
 

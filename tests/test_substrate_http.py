@@ -207,3 +207,45 @@ def test_suite_runs_against_a_real_tier_and_is_attributed(mock_model, tmp_path):
     second = json.loads(archived[1].read_text(encoding="utf-8"))
     assert first[0]["substrate"] == "http"
     assert second[0]["substrate"] == "stub"
+
+
+def test_local_server_needs_no_api_key_and_model_defaults(monkeypatch, mock_model):
+    """LM Studio style: no key, one loaded model — the adapter must just work."""
+    base_url, mock = mock_model
+    for name in ("BEANIE_MODEL_NAME", "BEANIE_API_KEY", "BEANIE_MODEL_FAST_NAME"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BEANIE_MODEL_URL", base_url)
+    substrate = HTTPSubstrate()  # no key configured at all
+    assert substrate.model == "local-model"
+    assert substrate.fast({"user_text": "hello"}, []) == REPLY
+    assert mock.requests[-1]["auth"] is None  # no header sent when no key is set
+
+
+def test_fast_model_env_selects_the_system_1_model(monkeypatch, mock_model):
+    base_url, mock = mock_model
+    monkeypatch.setenv("BEANIE_MODEL_URL", base_url)
+    monkeypatch.setenv("BEANIE_MODEL_NAME", "deep-model")
+    monkeypatch.setenv("BEANIE_MODEL_FAST_NAME", "fast-model")
+    substrate = HTTPSubstrate()
+    assert substrate.fast_model == "fast-model"
+    substrate.fast({"user_text": "hello"}, [])
+    assert mock.requests[-1]["body"]["model"] == "fast-model"
+    substrate.deep({"user_text": "hello"}, [], "candidate")
+    assert mock.requests[-1]["body"]["model"] == "deep-model"
+
+
+def test_gui_action_proposal_parses_one_bounded_action(monkeypatch, mock_model):
+    """§11.3: the vision/navigation proposal must be one JSON action or an
+    honest None — never a half-parsed guess the navigator would execute."""
+    base_url, mock = mock_model
+    monkeypatch.setenv("BEANIE_MODEL_URL", base_url)
+    substrate = HTTPSubstrate()
+
+    mock.reply_text = '{"type": "click", "target": "Files", "reason": "open the file manager"}'
+    action = substrate.propose_next_action("open the file manager", "Desktop: [Files] [Trash]", [])
+    assert action == {"type": "click", "target": "Files", "reason": "open the file manager"}
+
+    mock.reply_text = "I would probably click somewhere near the top left."
+    assert substrate.propose_next_action("open the file manager", "Desktop", []) is None
+
+    mock.reply_text = REPLY

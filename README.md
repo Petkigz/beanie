@@ -65,11 +65,35 @@ src/beanie/
   affect.py       owner-model affect observations: tone read from the owner's words,
                   cited back on request, raises the effort floor when frustrated (§3.5)
   attention.py    novelty over observed streams (§4.2)
-  substrate.py    fast/deep tier interface + deterministic test double (§2)
+  substrate.py    fast/deep tier interface + deterministic test double (§2); both tiers
+                  can also propose the next on-screen action for GUI navigation (§11.3)
   substrate_http.py  OpenAI-compatible real model tier (§2): honest failure mapping,
-                  candidate passed to the deep tier; exercised against a local mock
-  mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 24 tasks, action turns, register + score
+                  candidate passed to the deep tier; exercised against a local mock.
+                  LM Studio ready: key optional, `local-model` default, any /v1 port
+  decision.py     the decision gate (§11.1): every action-flavored request is classified
+                  into a bounded need (play/find/open/install/phone/web/learn…) before
+                  any tool is chosen; ambiguous requests are model-assisted, danger is
+                  classified, never assumed
+  searchindex.py  Everything-style file index (§11.2): incremental multi-root scan,
+                  kind hints (song/video/photo/doc), near-spelling fuzzy match, an
+                  citable why for every hit
+  streaming.py    streaming fallback (§11.2): YouTube top-result resolution with an
+                  honest search-page fallback when a specific video can't be resolved
+  body.py         sandbox + opt-in OS body; four-state authority gate (§5/§7); the OS
+                  body also opens files/URLs, plays media, installs software and runs
+                  docker sandboxes — command builders per platform, dry-run first (§11.4)
+  automation.py   GUI navigation loop (§11.3): sense → propose → gate → act → sense,
+                  with virtual + pyautogui limbs; unplannable screens are reported,
+                  never guessed
+  android.py      the phone as a limb (§11.5): adb driver + virtual double, driven by
+                  the same navigator as the desktop
+  voice.py        mouth + ears (§11.6): platform speech engines opt-in, transcription
+                  engine honestly optional — absence is said, not faked
+  webui.py        the web window (§11.7): stdlib HTTP server + embedded dark chat page,
+                  voice in and out via browser speech APIs, same Mind.step as the CLI
+  mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1),
+                  plus the decision-gated body flows (§11)
+  measure.py      longitudinal suite runner: 25 tasks, action turns, register + score
                   snapshots, trailing-window report (suite delta, register + level movement,
                   stagnation prompt, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
@@ -79,7 +103,9 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            164 tests incl. the conformance drift guard + T-test battery
+tests/            216 tests incl. the conformance drift guard + T-test battery
+android_app/      Android companion WebView shell (KOTLIN; see its README: built by
+                  Android Studio on the owner's machine, honest about sandbox limits)
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)
@@ -99,6 +125,52 @@ export BEANIE_API_KEY=sk-...
 .venv/bin/python -m beanie.measure --suite-dir suites --substrate http   # the suite on the real tier
 make repl                                            # talk to a mind whose thoughts are model-backed
 ```
+
+### LM Studio (the local default, Gate A)
+
+The same adapter points at a local LM Studio server — no key, no account:
+
+```bash
+# start the server in LM Studio (Developer tab) on http://localhost:1234
+export BEANIE_MODEL_URL=http://localhost:1234/v1
+# that's it: name defaults to local-model (single-loaded-model servers answer
+# to any name); optionally give the reflex tier its own faster model:
+# export BEANIE_MODEL_FAST_NAME=qwen2.5-1.5b-instruct
+```
+
+## Embodiment — the real PC (opt-in env vars, §11)
+
+The mind ships in the sandbox body; everything that touches the real machine is
+opt-in, one switch per organ, and every dangerous capability asks first (§5):
+
+| Env var | What it enables |
+| --- | --- |
+| `BEANIE_MODEL_URL` … | the thinking tiers (see above) |
+| `BEANIE_BODY_OS=1` | real OS body: open files/URLs, play media, launch apps, shell; plus install/uninstall and docker sandboxes — the dangerous family previews its command and asks first |
+| `BEANIE_BODY_DRYRUN=1` | every body action returns its *plan* only ("would run: …") — audition mode |
+| `BEANIE_AUTOMATION=1` + `pyautogui` | GUI eyes-hands: the navigation loop on the live screen |
+| `BEANIE_ANDROID=1` + adb | the phone as a limb (open apps on the phone from the PC) |
+| `BEANIE_VOICE=1` | platform speech engine for spoken replies (WebUI voice needs no install at all) |
+
+The flows that run on them, verbatim. Owner: *"play me kaba"* → the file index
+finds `kaba.mp3` no matter how the file is named, across the whole PC — or the
+fall-back opens the YouTube top result and **says which of the two happened**.
+*"install obs studio"* → the exact package-manager command is shown and asked
+about first. *"learn how to edit videos"* → the learning task is declared and
+logged, never improvised over.
+
+### The windows (§11.7)
+
+```bash
+.venv/bin/python -m beanie.webui --state-dir .beanie_state --host 0.0.0.0 --port 8080
+# open http://<pc>:8080 in any browser — chat, tick button, live state chips,
+# mic (browser speech recognition) + spoken answers (browser TTS), zero installs
+
+make repl          # the CLI window, same mind, same loop
+```
+
+`android_app/` is the Android companion (a WebView shell aimed at that URL):
+open the folder in Android Studio, set the PC's LAN IP, done (see its README).
 
 Honesty rules that hold on a real tier, by construction:
 

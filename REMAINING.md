@@ -1,12 +1,85 @@
 # What is left — and exactly what opens each gate
 
-Written 2026-09-10, at `bad21d9`. Honest state of the build: **43 capability rows, 41 at
-level 1, 2 at level 0, 0 above level 1** (`CAPABILITY_REGISTER.md`), 150 tests green, the
-24/24 tracked suite green, and every remaining gap assigned to a gate instead of a shrug.
+Written 2026-09-10, refreshed after the embodiment expansion. Honest state of the
+build: **51 capability rows, 49 at level 1, 2 at level 0, 0 above level 1**
+(`CAPABILITY_REGISTER.md`), 216 tests green, the 25/25 tracked suite green (now
+including the `media_intent` acceptance task), and every remaining gap assigned to a
+gate instead of a shrug.
 
-There is nothing left in the deterministic queue. Two gates remain, and both are outside
-the code: they need a **real model tier** and **calendar time**. This page is the runbook
-for both.
+**New since the audit addendum**: the §11 embodiment layer is built — the decision
+gate (§11.1, the owner's "biggest problem"), the Everything-class file index and
+local-first media flow with the labeled YouTube fallback (§11.2), the GUI navigation
+loop with virtual/pyautogui limbs (§11.3), the real OS body with openers/installers/
+docker and dry-run previews (§11.4), the adb phone limb (§11.5), the voice organ
+(§11.6), the stdlib WebUI + Android companion (§11.7), and LM Studio as the intended
+local tier (keyless `local-model` defaults). All deterministic and tested end-to-end;
+**the level-2 gate for rows 44–51 is repeated success on the owner's live PC**, which
+no CI environment can provide — that gate is the owner's machine itself.
+
+**Owner onboarding for the new layer** (in order):
+
+```bash
+export BEANIE_MODEL_URL=http://localhost:1234/v1   # LM Studio server running, any model
+export BEANIE_BODY_OS=1                            # real OS body: open/play/install/uri/shell
+# optional: BEANIE_BODY_DRYRUN=1 first as an audition — every action reports its plan
+export BEANIE_AUTOMATION=1 && pip install pyautogui  # screen eyes+hands (optional)
+export BEANIE_ANDROID=1                            # phone as a limb, usb-debugging on (optional)
+export BEANIE_VOICE=1                              # platform speech engine (optional)
+.venv/bin/python -m beanie.webui --state-dir .beanie_state --host 0.0.0.0 --port 8080
+```
+
+Then: *"play me kaba"*, *"open firefox"*, *"install obs studio"* (counts as a
+permission ask the very first time; *"you may install_app"* answers it and grants
+a real standing rule), *"on my phone, open whatsapp"* — each with its permission
+preview.
+
+Two gates remain beyond the code: a **real model tier** (still Gate A — LM Studio
+makes opening it one local server start instead of an account) and **calendar time**
+(Gate B, unchanged — VISION §5 longitudinal evidence).
+
+---
+
+## Audit addendum (2026-09-10, post-`bad21d9` change audit)
+
+A full capability/rot audit found two real regressions and restored them; nothing was
+pruned, so no capability was lost or abandoned:
+
+1. **The §4.7 pre-flight adversarial pass was wired but inert** (register row 14). The
+   guard in `Mind._default_turn` read `not outcome.failure`, but `FailureTaxonomy.NONE`
+   is a truthy enum member, so the devil's advocate never ran — zero executions across
+   the battery, masked by an assertion that checked only that a `concerns` key exists in
+   the payload (it is always written). The guard now compares against `NONE` explicitly;
+   `test_effort_allocation.py` asserts the pass *ran*, and a new regression test
+   (`test_pre_flight_finds_contradiction_history_about_the_subject`) proves a stored
+   supersession surfaces as a named concern, costs confidence, and is cited as the
+   losing alternative in the explanation.
+2. **Exposed by restoring it**: `faithfulness.resolve_ref` routed real
+   `decision.concerns[i]` citations to the event-kind lookup (where they correctly look
+   "unknown") before the decision-payload branch could index them. The real-concern
+   citation failed to resolve while a *fabricated* one failed-passes by accident — a
+   bite test that bit by luck. Decision refs now resolve first; fabricated citations to
+   empty concern lists still fail.
+
+Also repaired: a missing `typing.Optional` import in `attention.py` (latent
+`get_type_hints` `NameError`, no runtime effect) and a stray placeholder-less f-string.
+
+Deliberately *not* pruned (an audit argues; it does not delete):
+
+- `Memory.entries_of` (stores.py) and `NoveltyDetector.reset` (attention.py) — zero
+  callers anywhere; unused public surface kept until a deliberate decision.
+- `PromptedReflector` (reflection.py) — the Gate-A reflection seam; never constructed by
+  the loop or tests. Verified: with the stub tier it degrades honestly
+  ("nothing invented"), exactly as documented.
+- `OSBody` — opt-in real body behind `BEANIE_BODY_OS=1`; untouched by all tests by design.
+- `Incubator.park()` — exercised by tests; the loop revisits parked problems in `tick()`
+  but never *auto-parks* failed plans itself (parking is currently owner/test-driven).
+  Auto-parking from `perform_goal` failures is candidate continuation work, not a bug.
+- `Mind.predict_goal` — public counterfactual API; covered by tests but not reachable
+  from the CLI/suite surface.
+
+State after this audit: 216 tests green, 25/25 suite green (the media_intent acceptance
+scenario joins the battery), the §9.9 audit re-run over all suite + demo turns: 0
+violations, 0 unaudited.
 
 ---
 
@@ -23,8 +96,9 @@ different conditions.
 
 ```bash
 export BEANIE_MODEL_URL=https://your-endpoint/v1     # OpenAI-compatible
-export BEANIE_MODEL_NAME=your-model-name
-export BEANIE_API_KEY=your-key
+export BEANIE_MODEL_NAME=your-model-name             # LM Studio default: local-model
+export BEANIE_API_KEY=your-key                       # LM Studio: not needed (leave unset)
+# LM Studio: just `export BEANIE_MODEL_URL=http://localhost:1234/v1` — that's all
 
 python -m beanie.cli --check-model                   # prints endpoint/model + fast/deep pings
 python -m beanie.measure --suite-dir suites --track-dir results --substrate http

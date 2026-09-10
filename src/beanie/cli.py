@@ -10,10 +10,29 @@ loop.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from .mind import Mind
+
+
+def build_mind(state_dir: Path, authority: str = "ask") -> Mind:
+    """A mind with the real model tier when BEANIE_MODEL_URL is set (§2).
+
+    The CLI and the WebUI construct their minds through this one seam so both
+    windows answer with the same substrate: HTTP when the owner configured an
+    endpoint, the documented stub double otherwise.
+    """
+    substrate = None
+    if os.environ.get("BEANIE_MODEL_URL"):
+        from .substrate_http import HTTPSubstrate
+
+        try:
+            substrate = HTTPSubstrate()
+        except RuntimeError as error:
+            print(f"◉ model tier not used ({error}) — falling back to the deterministic stub")
+    return Mind(substrate=substrate, state_dir=state_dir, authority=authority)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.check_model:
         return _check_model()
 
-    mind = Mind(state_dir=Path(args.state_dir))
+    mind = build_mind(Path(args.state_dir))
 
     if args.audit_explanations:
         return _audit_explanations(mind)
