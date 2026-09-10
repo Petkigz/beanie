@@ -1,18 +1,13 @@
 {
   "id": "idle_curiosity",
-  "description": "Idle curiosity (§4.2/row 21): a hard turn queues an open question; the background tick explores it, and the next tick has nothing left to explore.",
+  "description": "Idle curiosity with content (row 21): the background budget investigates an open question against the environment, records what it finds without closing the gap on a keyword match, and then senses a directory instead of looping.",
+  "setup": {"dirs": ["notes"], "files": {"notes/context.txt": "the context lives in the config file"}},
   "turns": [
-    {
-      "user": "the context is missing here",
-      "expect": "missing"
-    },
-    {
-      "tick": 1,
-      "expect": "context is missing"
-    },
-    {
-      "tick": 1,
-      "expect": "\"curiosity\": []"
-    }
+    {"user": "the context is missing here", "expect": "missing"},
+    {"tick": 1, "expect": "candidate evidence"},
+    {"query": {"kind": "self", "type": "question"}, "expect": "notes/context.txt"},
+    {"tick": 1, "expect": "inspected notes"},
+    {"user": "remember that the context is in the config file", "expect": "remembered"},
+    {"query": {"kind": "self", "type": "question"}, "expect": "resolved"}
   ]
 }

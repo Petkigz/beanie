@@ -645,16 +645,14 @@ class Mind:
             notes["incubation_revisits"].append(entry.id)
 
         # idle exploration (R3.24 / register row 21): budgeted self-directed
-        # attention — surface the oldest unexplored open question and mark it,
-        # so every idle budget does real cognitive work but never loops (§4.2)
+        # attention — take the oldest unexplored open question and *investigate*
+        # it against the environment (search by its own words), so the idle
+        # budget does real cognitive work but never loops (§4.2)
         for question in self.memory.query(kind="self", type="question", status="open"):
             if not question.content.get("explored_at"):
-                subject = str(question.content.get("subject", "?"))
-                question.content["explored_at"] = utcnow_iso()
-                question.revise("idle exploration pass", observe=False)
-                self.memory.self_model.save_all()
-                notes["curiosity"].append(subject)
-                self.trace.append("bg", "curiosity", {"question_id": question.id, "subject": subject})
+                found = self._investigate(question)
+                notes["curiosity"].append(found["note"])
+                self.trace.append("bg", "curiosity", {"question_id": question.id, **found["trace"]})
                 break
         else:
             # no open questions left: idle cognition still senses the world —
@@ -815,6 +813,64 @@ class Mind:
 
         UsefulnessTracker().rate(self.trace, turn_id, score, note)
 
+    def _investigate(self, question: Entry) -> dict[str, Any]:
+        """Idle curiosity with content (row 21): search the environment for evidence.
+
+        The question's own words pick the search terms; the sandbox is searched
+        by filename and content; findings are recorded as a perception episode
+        and attached to the question. A keyword match never silently closes the
+        gap — the question stays open with what was found, and only real
+        evidence (a stored fact, owner confirmation) resolves it through the
+        normal paths (T5 honesty, §4.2).
+        """
+        subject = str(question.content.get("subject", "")) or "?"
+        terms = _signal_tokens(f"{subject} {question.content.get('text', '')}")
+        matches: list[dict[str, Any]] = []
+        searched = 0
+        if self.body.root.exists():
+            for path in sorted(p for p in self.body.root.rglob("*") if p.is_file()):
+                searched += 1
+                relative = str(path.relative_to(self.body.root))
+                try:
+                    content = path.read_text(encoding="utf-8", errors="replace")[:4000]
+                except OSError:
+                    content = ""
+                overlap = (_signal_tokens(path.name) | _signal_tokens(content)) & terms
+                if overlap:
+                    matches.append({"path": relative, "matched_terms": sorted(overlap)[:4]})
+        investigation = {
+            "at": utcnow_iso(),
+            "terms": sorted(terms)[:8],
+            "files_searched": searched,
+            "matches": matches[:5],
+        }
+        if searched or matches:  # record the search itself as lived experience
+            episode = Entry(
+                id=self.memory.allocate_id(),
+                kind=RecordKind.EPISODE,
+                content={"type": "observation",
+                         "event": {"kind": "investigation", "question_id": question.id, **investigation},
+                         "user_text": f"idle investigation of {subject[:60]}"},
+                source=Source.PERCEPTION,
+                confidence=0.6,
+            )
+            self.episodes.append(episode)
+            investigation["episode_id"] = episode.id
+        question.content["explored_at"] = utcnow_iso()
+        question.content["investigation"] = investigation
+        if matches:
+            note = (f"{subject[:60]} (searched {searched} file(s); "
+                    f"candidate evidence: {', '.join(m['path'] for m in matches[:3])})")
+        else:
+            note = f"{subject[:60]} (searched {searched} file(s); no evidence in the sandbox)"
+        question.revise("idle investigation pass", observe=False)
+        self.memory.self_model.save_all()
+        return {
+            "note": note,
+            "trace": {"searched": searched, "matches": [m["path"] for m in matches[:5]],
+                      "terms": investigation["terms"]},
+        }
+
     def _record_implicit_usefulness(self, turn_id: str, text: str) -> Optional[str]:
         """Record follow-up / abandonment as usefulness signals (§8 implicit side).
 
@@ -852,6 +908,14 @@ class Mind:
         for a turn that did not happen).
         """
         target = self._previous_turn_id
+        if not target:
+            # a fresh process has no in-memory previous turn: fall back to the
+            # last answered turn in the persisted trace, so the owner can rate
+            # yesterday's answer after restarting the mind
+            for event in reversed(self.trace.events):
+                if event.kind == "outcome":
+                    target = event.turn_id
+                    break
         if not target:
             return self._directive_reply(
                 turn_id, "I don't have an answer to rate yet — say it after a turn you're judging.",
