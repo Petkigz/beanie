@@ -124,3 +124,15 @@ def test_every_vision_test_has_an_executable_probe():
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "tests").glob("test_*.py"))
     missing = [f"T{n}" for n in defined if not re.search(rf"\bT{n}\b", corpus)]
     assert not missing, f"VISION tests with no executable probe: {', '.join(missing)}"
+
+
+def test_readme_test_count_matches_the_battery():
+    """A stale 'N tests' line in the README is a small lie; keep it true."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    match = re.search(r"tests/\s+(\d+) tests", readme)
+    assert match, "README no longer states the test count"
+    actual = sum(
+        len(re.findall(r"^def test_", path.read_text(encoding="utf-8"), re.MULTILINE))
+        for path in (ROOT / "tests").glob("test_*.py")
+    )
+    assert int(match.group(1)) == actual, f"README says {match.group(1)} tests, battery has {actual}"

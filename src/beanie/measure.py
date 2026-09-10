@@ -177,7 +177,18 @@ class ScenarioResult:
         }
 
 
-def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
+def make_substrate(kind: str):
+    """Build the substrate the run should use (§2): deterministic stub or a real endpoint."""
+    if kind == "stub":
+        return StubSubstrate()
+    if kind == "http":
+        from .substrate_http import HTTPSubstrate
+
+        return HTTPSubstrate()  # raises RuntimeError naming the missing env vars
+    raise ValueError(f"unknown substrate {kind!r} (expected 'stub' or 'http')")
+
+
+def run_scenario(scenario: Scenario, state_dir: Path, substrate_kind: str = "stub") -> ScenarioResult:
     """Run one scenario against a fresh mind; check expected reply substrings.
 
     Every turn kind produces a haystack of everything it surfaced (reply text,
@@ -187,8 +198,8 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
     oracle; the T-tests are the oracle. Scenario expectations tighten as the
     T-tests land (T1–T13 map onto scenario turns).
     """
-    mind = Mind(substrate=StubSubstrate(), state_dir=state_dir, authority=scenario.authority,
-                reflect_every=scenario.reflect_every)
+    mind = Mind(substrate=make_substrate(substrate_kind), state_dir=state_dir,
+                authority=scenario.authority, reflect_every=scenario.reflect_every)
     _apply_env(mind, scenario.setup)
     result = ScenarioResult(scenario_id=scenario.id)
     turn_haystacks: list[str] = []
@@ -443,7 +454,16 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
         return {"runs": 0, "days": days}
     latest_stamp = runs[-1][0]
     cutoff = latest_stamp - _dt.timedelta(days=days)
-    window = [(stamp, rows) for stamp, rows in runs if stamp >= cutoff]
+    in_range = [(stamp, rows) for stamp, rows in runs if stamp >= cutoff]
+    substrate = "stub"
+    for row in runs[-1][1]:
+        if isinstance(row, dict) and "substrate" in row:
+            substrate = str(row["substrate"])
+            break
+    window = [
+        (stamp, rows) for stamp, rows in in_range
+        if all((row.get("substrate", "stub") == substrate) for row in rows if isinstance(row, dict))
+    ]
     per_scenario: dict[str, dict[str, Any]] = {}
     calibration: dict[str, dict[str, int]] = {}
     runs_fully_passed = 0
@@ -475,6 +495,7 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     return {
         "runs": len(window),
         "runs_archived": len(runs),
+        "substrate": substrate,
         "days": days,
         "window_start": window[0][0].isoformat(),
         "window_end": latest_stamp.isoformat(),
@@ -494,6 +515,8 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     if not report["runs"]:
         print("  no archived runs in the window yet — the delta appears from the second run on")
         return report
+    print(f"  substrate: {report.get('substrate', 'stub')} "
+          f"(runs on other substrates are excluded: different conditions, §8)")
     print(f"  runs in window: {report['runs']} (of {report['runs_archived']} archived) · "
           f"fully-passing runs: {report['runs_fully_passed']} ({report['pass_rate']})")
     print(f"  window: {report['window_start'][:19]} → {report['window_end'][:19]}")
@@ -519,7 +542,7 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
 
 
 def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, track_dir: Path | None = None,
-              register_path: Path | None = None) -> int:
+              register_path: Path | None = None, substrate_kind: str = "stub") -> int:
     """Run every scenario file in `suite_dir`; returns number of failed scenarios.
 
     With `track_dir`, the run's results are archived under a timestamped file
@@ -532,12 +555,15 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
     if not paths:
         print(f"No scenario files (*.json) found in {suite_dir}")
         return 1
+    if substrate_kind != "stub":
+        print(f"Substrate: {substrate_kind} (real model tier — labels are placeholders "
+              f"until the calibrator adjusts them, T8)")
     results: list[ScenarioResult] = []
     for path in paths:
         scenario = Scenario.from_file(path)
         run_dir = state_dir / scenario.id
         run_dir.mkdir(parents=True, exist_ok=True)
-        results.append(run_scenario(scenario, run_dir))
+        results.append(run_scenario(scenario, run_dir, substrate_kind=substrate_kind))
     failed = sum(1 for r in results if not r.passed)
     for result in results:
         mark = "PASS" if result.passed else "FAIL"
@@ -547,6 +573,8 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
             print(f"      expected '{failure['expected']}' in reply, got: {failure['actual']!r} [{failure['label']}]")
     print(f"\nSuite summary: {len(results) - failed}/{len(results)} scenarios passed.")
     payload = [r.to_dict() for r in results]
+    for row in payload:  # substrate provenance: stub and model runs are not comparable
+        row["substrate"] = substrate_kind
     # T8 self-audit: aggregated label calibration across the run
     merged: dict[str, dict] = {}
     for row in payload:
@@ -592,12 +620,22 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         previous = run_files(track_dir)
         if len(previous) >= 2:  # newest is this run
             with previous[-2].open(encoding="utf-8") as fh:
-                last = {row["scenario_id"]: row for row in json.load(fh)}
+                last_rows = json.load(fh)
+            last = {row["scenario_id"]: row for row in last_rows}
+            previous_substrate = next(
+                (row.get("substrate", "stub") for row in last_rows if isinstance(row, dict)), "stub"
+            )
+            if previous_substrate != substrate_kind:
+                print(f"\nDelta skipped: the previous run used the {previous_substrate} substrate "
+                      f"and this one used {substrate_kind} — different substrates are not comparable "
+                      f"(VISION §5: same tasks, same conditions).")
+                last = {}
             print("\nDelta vs previous run:")
             for row in payload:
                 prev = last.get(row["scenario_id"])
                 if prev is None:
-                    print(f"  {row['scenario_id']}: new scenario")
+                    if last:
+                        print(f"  {row['scenario_id']}: new scenario")
                     continue
                 shift = row["passed_turns"] - prev["passed_turns"]
                 arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "—")
@@ -619,17 +657,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-dir", default=None, help="state directory (default: fresh temp dir)")
     parser.add_argument("--out", default=None, help="optional path for a JSON results file")
     parser.add_argument("--track-dir", default=None, help="archive runs here and print the delta vs the previous run (Q31)")
+    parser.add_argument("--substrate", default="stub", choices=("stub", "http"),
+                        help="stub (deterministic, default) or http (real model tier via BEANIE_MODEL_URL)")
     args = parser.parse_args(argv)
     suite_dir = Path(args.suite_dir)
     state_dir = Path(args.state_dir) if args.state_dir else Path(tempfile.mkdtemp(prefix="beanie-suite-"))
     register_path = Path("CAPABILITY_REGISTER.md")
-    return run_suite(
-        suite_dir,
-        state_dir,
-        Path(args.out) if args.out else None,
-        Path(args.track_dir) if args.track_dir else None,
-        register_path if register_path.exists() else None,
-    )
+    try:
+        return run_suite(
+            suite_dir,
+            state_dir,
+            Path(args.out) if args.out else None,
+            Path(args.track_dir) if args.track_dir else None,
+            register_path if register_path.exists() else None,
+            substrate_kind=args.substrate,
+        )
+    except RuntimeError as error:
+        print(f"Cannot use the http substrate: {error}")
+        return 2
 
 
 if __name__ == "__main__":

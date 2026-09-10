@@ -24,7 +24,7 @@ def test_short_trigger_escalates_from_reflex_to_deep(tmp_path):
     reply = mind.step("make it ambiguous")  # 3 words, stakes 0 → reflex first
     assert not reply.success
     assert reply.confidence_label == "speculative"
-    assert substrate.fast_calls == 2  # reflex attempt + pre-deep candidate
+    assert substrate.fast_calls == 1  # the flagged candidate is reused, not re-bought
     assert substrate.deep_calls == 1  # escalation happened
     decisions = [e for e in mind.trace.events if e.kind == "decision"]
     assert decisions[-1].payload["depth"] == "deep"

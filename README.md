@@ -61,18 +61,56 @@ src/beanie/
                   cited back on request, raises the effort floor when frustrated (§3.5)
   attention.py    novelty over observed streams (§4.2)
   substrate.py    fast/deep tier interface + deterministic test double (§2)
-  substrate_http.py  optional OpenAI-compatible real model tier (§2)
+  substrate_http.py  OpenAI-compatible real model tier (§2): honest failure mapping,
+                  candidate passed to the deep tier; exercised against a local mock
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
   measure.py      longitudinal suite runner: 24 tasks, action turns, register + score
                   snapshots, trailing-30-day window report (suite delta, register movement,
                   VISION §5 level movement, calibration, usefulness)
-  cli.py          REPL window into the mind; `tick [N]` / --tick runs the idle budget
+  cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
+                  the configured model tier
 Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            131 tests incl. the conformance drift guard + T-test battery
+tests/            142 tests incl. the conformance drift guard + T-test battery
 ```
+
+## Connecting a real model tier (BEANIE_MODEL_URL)
+
+Nothing about Beanie's identity lives in the model tier (§2): the loop, the stores, the
+trace, calibration, the effort policy and the suite all run unchanged on top of either a
+deterministic stub (the default, used by the tests) or a real OpenAI-compatible endpoint.
+The gated capability rows in the register wait on this one action, which is the owner's
+to take — no endpoint is configured by default and nothing is called without it.
+
+```bash
+export BEANIE_MODEL_URL=https://api.openai.com/v1    # any OpenAI-compatible /chat/completions
+export BEANIE_MODEL_NAME=gpt-4o-mini
+export BEANIE_API_KEY=sk-...
+
+.venv/bin/python -m beanie.cli --check-model         # fast + deep tier ping, and what to run next
+.venv/bin/python -m beanie.measure --suite-dir suites --substrate http   # the suite on the real tier
+make repl                                            # talk to a mind whose thoughts are model-backed
+```
+
+Honesty rules that hold on a real tier, by construction:
+
+* the adapter's confidence is a **placeholder** until the loop's calibrator adjusts it from
+  the evidence state (T8); the communicated label is always the calibrated one;
+* a hedging model answer ("ambiguous", "not sure", "unclear", "missing context") is mapped
+  to the failure taxonomy — the loop does not dress doubt up as success;
+* a fast answer that hedges flags escalation, and an unreachable tier returns
+  *"my model tier is unreachable right now — I cannot respond with confidence"* with
+  `tool_execution_error`, never an invented answer;
+* the System-1 candidate is passed to the System-2 tier (verify-or-overrule, §2), and an
+  escalated turn does **not** pay for the fast tier twice;
+* tracked runs record which substrate produced them and are only compared with runs of the
+  same substrate (VISION §5: same tasks, same conditions) — a model run never silently
+  inflates or pollutes the stub baseline.
+
+`tests/test_substrate_http.py` covers this seam against a local OpenAI-compatible mock
+(no external calls in tests), so the whole path works the moment an endpoint exists.
 
 ## Running it
 

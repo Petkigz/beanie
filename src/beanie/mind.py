@@ -1261,8 +1261,11 @@ class Mind:
                 depth = "deep"  # fast tier flagged; escalate (§2 contract)
                 escalated_from = "reflex"  # recorded for the effort-policy audit (T13)
         if depth != "reflex":
-            # dual-process: System-1 candidate, System-2 verdict (§2)
-            candidate = self.substrate.fast(observation, context)
+            # dual-process: System-1 candidate, System-2 verdict (§2); the
+            # candidate is reused when the fast tier already ran — the same
+            # intuition is never paid for twice (a real tier costs money and time)
+            if not candidate:
+                candidate = self.substrate.fast(observation, context)
             outcome = self.substrate.deep(observation, context, candidate)
         else:
             outcome = Outcome(

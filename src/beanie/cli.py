@@ -23,7 +23,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", action="store_true", help="prefix replies with the communicated confidence label (T8)")
     parser.add_argument("--tick", type=int, default=0,
                         help="run N background-cognition passes (idle budget) and print what they did")
+    parser.add_argument("--check-model", action="store_true",
+                        help="ping the configured model tier (BEANIE_MODEL_URL) and exit")
     args = parser.parse_args(argv)
+
+    if args.check_model:
+        return _check_model()
 
     mind = Mind(state_dir=Path(args.state_dir))
 
@@ -61,6 +66,37 @@ def main(argv: list[str] | None = None) -> int:
             _print_reply(reply, show_label=args.label)
     except KeyboardInterrupt:
         print()
+    return 0
+
+
+def _check_model() -> int:
+    """Report whether the configured model tier answers (§2 seam, owner-run check)."""
+    import os
+
+    from .substrate import FailureTaxonomy
+    from .substrate_http import HTTPSubstrate
+
+    endpoint = os.environ.get("BEANIE_MODEL_URL", "")
+    model_name = os.environ.get("BEANIE_MODEL_NAME", "")
+    try:
+        substrate = HTTPSubstrate()
+    except RuntimeError as error:
+        print(f"Model tier not configured: {error}")
+        print("Set BEANIE_MODEL_URL, BEANIE_MODEL_NAME and BEANIE_API_KEY, then retry.")
+        return 2
+    print(f"Endpoint: {substrate.base_url}  ·  model: {substrate.model}")
+    candidate = substrate.fast({"user_text": "ping"}, [])
+    if candidate.startswith("fast: low-confidence"):
+        print("Fast tier: unreachable or unsure of the ping.")
+    else:
+        print(f"Fast tier: ok — {candidate[:120]}")
+    outcome = substrate.deep({"user_text": "Reply with the single word: pong"}, [], candidate)
+    if outcome.failure is FailureTaxonomy.TOOL_EXECUTION_ERROR:
+        print("Deep tier: unreachable — the loop would report this honestly and not guess.")
+        return 1
+    print(f"Deep tier: ok — {outcome.text[:160]}")
+    print("The whole loop and the longitudinal suite can now run against this tier:")
+    print("  .venv/bin/python -m beanie.measure --suite-dir suites --substrate http")
     return 0
 
 
