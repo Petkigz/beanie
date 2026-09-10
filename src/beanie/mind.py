@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +48,7 @@ from .research import Researcher, web_search
 from .searchindex import FileIndex
 from .state import MindState
 from .streaming import google_search_url, youtube_search_url, youtube_top_result
+from .voice import Voice
 from .stores import Memory
 from .substrate import Outcome, StubSubstrate, Substrate
 from .simulate import Simulator, parse_what_if
@@ -1105,6 +1107,51 @@ class Mind:
                     f"to allow it, or 'never use {capability}' to rule it out.")
         return (f"This is the {_ordinal(count)} time I've needed {capability}. If you like, a standing rule "
                 f"('you may {capability}') would save you the trip — otherwise I'll keep asking.")
+
+    def organ_status(self) -> dict[str, dict[str, Any]]:
+        """Each organ's state and the exact switch that seats it (§11, row 35) —
+        the honest onboarding answer to "what can you actually do right now?"."""
+        voice = Voice()
+        gui_on = os.environ.get("BEANIE_AUTOMATION") == "1"
+        try:
+            import pyautogui  # noqa: F401
+
+            gui_lib = True
+        except ImportError:
+            gui_lib = False
+        adb_ready = bool(os.environ.get("BEANIE_ANDROID") == "1" and shutil.which("adb"))
+        return {
+            "model_tier": {
+                "on": self.substrate.name != "stub",
+                "detail": self.substrate.name,
+                "switch": "export BEANIE_MODEL_URL=http://localhost:1234/v1   (LM Studio's server)",
+            },
+            "os_body": {
+                "on": self._os_body() is not None,
+                "detail": "real machine actions (open/play/install/shell/docker, dry-run previews)",
+                "switch": "export BEANIE_BODY_OS=1",
+            },
+            "gui_control": {
+                "on": gui_on and gui_lib,
+                "detail": "screen eyes+hands navigation loop" if gui_on else "screens stay read-only",
+                "switch": "export BEANIE_AUTOMATION=1 && .venv/bin/pip install pyautogui",
+            },
+            "android": {
+                "on": adb_ready,
+                "detail": "phone as a limb over adb",
+                "switch": "export BEANIE_ANDROID=1 (and install platform-tools + enable USB debugging)",
+            },
+            "voice_speaker": {
+                "on": os.environ.get("BEANIE_VOICE") == "1" and voice.speaker() is not None,
+                "detail": f"platform engine: {voice.speaker() or 'none found'}",
+                "switch": "export BEANIE_VOICE=1",
+            },
+            "voice_ears": {
+                "on": voice.transcription_engine() is not None,
+                "detail": voice.transcription_engine() or "no engine — browser speech recognition in the WebUI covers this",
+                "switch": ".venv/bin/pip install faster-whisper",
+            },
+        }
 
     def pending_permission_requests(self) -> list[dict[str, Any]]:
         """Standing permission questions the owner has not answered yet (§5)."""

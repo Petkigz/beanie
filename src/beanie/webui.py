@@ -134,12 +134,22 @@ async function refreshState() {
   const box = document.getElementById('state'); box.innerHTML = '';
   const chips = [];
   if (s.open_questions) chips.push(s.open_questions + ' open question' + (s.open_questions == 1 ? '' : 's'));
-  if (s.pending_permissions) chips.push('⚠ ' + s.pending_permissions + ' permission wait' + (s.pending_permissions == 1 ? '' : 's'));
   if (s.active_skills) chips.push(s.active_skills + ' active skill' + (s.active_skills == 1 ? '' : 's'));
   chips.push(s.episodes + ' episodes');
   chips.forEach(c => { const e = document.createElement('span');
-    e.className = 'chip' + (c.startsWith('⚠') ? ' warn' : ''); e.textContent = c.replace('⚠ ', '');
-    if (c.startsWith('⚠')) e.textContent = c; box.appendChild(e); });
+    e.className = 'chip warn'; e.textContent = c; box.appendChild(e); });
+  (s.pending || []).forEach(pend => {
+    const wrap = document.createElement('span'); wrap.className = 'chip warn';
+    const name = document.createElement('span'); name.textContent = '⚠ ' + pend.capability + ' ×' + pend.count + ' ';
+    const allow = document.createElement('button'); allow.textContent = 'allow';
+    allow.style.cssText = 'margin:0 .2rem;padding:0 .45rem;font-size:.68rem;';
+    allow.onclick = () => send('you may ' + pend.capability);
+    const never = document.createElement('button'); never.textContent = 'never';
+    never.style.cssText = 'margin:0 .2rem;padding:0 .45rem;font-size:.68rem;color:#e3564e;';
+    never.onclick = () => send('never use ' + pend.capability);
+    wrap.appendChild(name); wrap.appendChild(allow); wrap.appendChild(never);
+    box.appendChild(wrap);
+  });
 }
 add('notice', 'Beanie is here — highest-confidence answers are labelled; say "why did you say that?" for its own validation trail.');
 refreshState();
@@ -198,13 +208,13 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             if path == "/api/state":
                 memory = self.server.mind.memory
                 open_q = len(memory.query(kind="self", type="question", status="open"))
-                pending = len([e for e in memory.query(kind="owner_model", type="permission_request")
-                               if e.content.get("status") == "pending"])
+                pending = self.server.mind.pending_permission_requests()
                 self._json()
                 self._write(json.dumps({
                     "backend": self.server.mind.substrate.name,
                     "open_questions": open_q,
-                    "pending_permissions": pending,
+                    "pending_permissions": len(pending),
+                    "pending": pending,
                     "active_skills": memory.skills.count(),
                     "episodes": memory.episodes.count(),
                 }).encode())

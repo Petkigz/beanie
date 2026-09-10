@@ -73,3 +73,62 @@ def test_the_window_serves_and_converses(tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_pending_permission_is_answerable_from_the_window(tmp_path):
+    """Dangerous asks are one tap in the window (§11.7/§5): the state payload
+    names the capability, and sending the grant sentence through the same mind
+    clears it — which is exactly what the page's Allow button does."""
+    mind = Mind(state_dir=tmp_path / "state")
+    server = make_server(mind, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.address
+        client = http.client.HTTPConnection(host, port, timeout=10)
+
+        _post(client, "/api/step", {"text": "You may gui_control"})  # pre-existing rule, keeps churn low
+        status, state_body = _get(client, "/api/state")
+        pending_before = json.loads(state_body)["pending_permissions"]
+
+        _post(client, "/api/step", {"text": "on my phone, open whatsapp"})  # phone ask (device off): no new ask
+        status, state_body = _get(client, "/api/state")
+        assert json.loads(state_body)["pending_permissions"] == pending_before
+
+        # a plan wall DOES create a pending ask the window can see and answer
+        from beanie.planning import PlanResult
+        from beanie.body import BodyError
+        result = PlanResult(skill_id="sk", steps=[], outcome="needs_permission")
+        result.last_result = {"capability": "open_url"}
+        question = mind._note_permission_need("open the dashboard", result)
+        assert question
+        status, state_body = _get(client, "/api/state")
+        state = json.loads(state_body)
+        assert any(p["capability"] == "open_url" for p in state["pending"])
+
+        status, reply = _post(client, "/api/step", {"text": "you may open_url"})  # the Allow button's payload
+        assert status == 200
+        status, state_body = _get(client, "/api/state")
+        assert all(p["capability"] != "open_url" for p in json.loads(state_body)["pending"])
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_organ_status_is_a_honest_seating_chart(tmp_path, monkeypatch):
+    """§11/row 35: what is seated, what is not, and the exact switch for each —
+    never a brochure."""
+    for var in ("BEANIE_BODY_OS", "BEANIE_AUTOMATION", "BEANIE_ANDROID", "BEANIE_VOICE"):
+        monkeypatch.delenv(var, raising=False)
+    mind = Mind(state_dir=tmp_path / "state")
+    status = mind.organ_status()
+    assert set(status) == {"model_tier", "os_body", "gui_control", "android",
+                           "voice_speaker", "voice_ears"}
+    assert status["model_tier"]["on"] is False
+    assert "BEANIE_MODEL_URL" in status["model_tier"]["switch"]
+    assert status["os_body"]["on"] is False
+
+    monkeypatch.setenv("BEANIE_BODY_OS", "1")
+    mind2 = Mind(state_dir=tmp_path / "state2")
+    assert mind2.organ_status()["os_body"]["on"] is True

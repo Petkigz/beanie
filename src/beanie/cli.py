@@ -44,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="run N background-cognition passes (idle budget) and print what they did")
     parser.add_argument("--check-model", action="store_true",
                         help="ping the configured model tier (BEANIE_MODEL_URL) and exit")
+    parser.add_argument("--status", action="store_true",
+                        help="show which organs are seated (model tier, bodies, voice) and how to seat each")
     parser.add_argument("--audit-explanations", action="store_true",
                         help="run the §9.9 faithfulness audit over every recorded decision and exit")
     args = parser.parse_args(argv)
@@ -52,6 +54,19 @@ def main(argv: list[str] | None = None) -> int:
         return _check_model()
 
     mind = build_mind(Path(args.state_dir))
+
+    if args.status:
+        pending = mind.pending_permission_requests()
+        print("◉ organ status:")
+        for name, organ in mind.organ_status().items():
+            mark = "●" if organ["on"] else "○"
+            line = f"  {mark} {name:<13} {'ON' if organ['on'] else 'off'}  — {organ['detail']}"
+            if not organ["on"]:
+                line += f"\n      seat it: {organ['switch']}"
+            print(line)
+        pending_line = ", ".join(p["capability"] for p in pending) or "none"
+        print(f"  permission asks pending: {pending_line}")
+        return 0
 
     if args.audit_explanations:
         return _audit_explanations(mind)
