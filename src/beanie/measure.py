@@ -312,6 +312,49 @@ def scorecard_snapshot(register_path: Path) -> dict[str, str]:
     return snapshot
 
 
+def register_scores(register_path: Path) -> dict[int, int]:
+    """Read the capability table's Score column: {row number -> achieved level}.
+
+    The register's headline metric is how many rows move up a VISION §5 level
+    between reviews, so the Score column has to be machine-readable — otherwise
+    the metric exists only in prose (it was empty until 2026-09-10).
+    """
+    if not register_path.exists():
+        return {}
+    scores: dict[int, int] = {}
+    for line in register_path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| "):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 6 or not cells[0].isdigit() or not cells[5].isdigit():
+            continue
+        scores[int(cells[0])] = int(cells[5])
+    return scores
+
+
+def score_movement(previous: dict[int, int], current: dict[int, int]) -> list[dict[str, int]]:
+    """Rows whose VISION §5 score changed between two register readings."""
+    return [
+        {"row": row, "from": previous[row], "to": level}
+        for row, level in sorted(current.items())
+        if row in previous and previous[row] != level
+    ]
+
+
+def print_score_composition(scores: dict[int, int]) -> None:
+    """The register's headline number: how many rows sit at each level today."""
+    if not scores:
+        print("  capability scores: register not readable")
+        return
+    total = len(scores)
+    by_level: dict[int, int] = {}
+    for level in scores.values():
+        by_level[level] = by_level.get(level, 0) + 1
+    parts = ", ".join(f"{count} at level {level}" for level, count in sorted(by_level.items(), reverse=True))
+    print(f"  capability scores: {parts} (of {total} rows) "
+          f"— levels 2–3 require longitudinal evidence (VISION §5)")
+
+
 def register_movement(previous: dict[str, str], current: dict[str, str]) -> list[dict[str, str]]:
     """Rows whose verdict changed between two scorecard snapshots."""
     moved: list[dict[str, str]] = []
@@ -329,6 +372,22 @@ def _print_register_movement(movement: list[dict[str, str]]) -> None:
     print(f"  register movement: {len(movement)} row(s) changed")
     for change in movement:
         print(f"    row {change['row']}: {change['from']} → {change['to']}")
+
+
+def run_files(track_dir: Path) -> list[Path]:
+    """Archived run files (results), excluding the register/score sidecars."""
+    return sorted(
+        path for path in track_dir.glob("*.json")
+        if not path.name.endswith((".register.json", ".scores.json")) and _parse_run_id(path.stem)
+    )
+
+
+def sidecar_files(track_dir: Path, suffix: str) -> list[Path]:
+    """Companion snapshots written beside runs, in run order."""
+    return sorted(
+        path for path in track_dir.glob(f"*{suffix}")
+        if _parse_run_id(path.name[: -len(suffix)])
+    )
 
 
 def _parse_run_id(stem: str) -> "_dt.datetime | None":
@@ -352,18 +411,22 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     """
     runs: list[tuple[_dt.datetime, list[dict]]] = []
     registers: list[tuple[_dt.datetime, dict[str, str]]] = []
-    for path in sorted(track_dir.glob("*.json")):
-        if path.name.endswith(".register.json"):
-            stamp = _parse_run_id(path.name[: -len(".register.json")])
-            if stamp is not None:
-                try:
-                    registers.append((stamp, json.loads(path.read_text(encoding="utf-8"))))
-                except (json.JSONDecodeError, OSError):
-                    pass
-            continue
+    score_snapshots: list[tuple[_dt.datetime, dict]] = []
+    for path in sidecar_files(track_dir, ".register.json"):
+        stamp = _parse_run_id(path.name[: -len(".register.json")])
+        try:
+            registers.append((stamp, json.loads(path.read_text(encoding="utf-8"))))
+        except (json.JSONDecodeError, OSError):
+            pass
+    for path in sidecar_files(track_dir, ".scores.json"):
+        stamp = _parse_run_id(path.name[: -len(".scores.json")])
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            score_snapshots.append((stamp, {int(k): int(v) for k, v in raw.items()}))
+        except (json.JSONDecodeError, OSError, ValueError):
+            pass
+    for path in run_files(track_dir):
         stamp = _parse_run_id(path.stem)
-        if stamp is None:
-            continue
         try:
             runs.append((stamp, json.loads(path.read_text(encoding="utf-8"))))
         except (json.JSONDecodeError, OSError):
@@ -399,6 +462,8 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     window_start = window[0][0] if window else None
     register_window = [(stamp, snap) for stamp, snap in registers if window_start is not None and stamp >= window_start]
     movement = register_movement(register_window[0][1], register_window[-1][1]) if len(register_window) >= 2 else []
+    score_window = [(stamp, snap) for stamp, snap in score_snapshots if window_start is not None and stamp >= window_start]
+    levels = score_movement(score_window[0][1], score_window[-1][1]) if len(score_window) >= 2 else []
     return {
         "runs": len(window),
         "runs_archived": len(runs),
@@ -410,6 +475,7 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
         "per_scenario": per_scenario,
         "calibration": calibration,
         "register_movement": movement,
+        "score_movement": levels,
     }
 
 
@@ -430,6 +496,13 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
               f"passed turns {entry['first_passed_turns']} → {entry['last_passed_turns']} {arrow}")
     print("  register movement in window:")
     _print_register_movement(report.get("register_movement", []))
+    levels = report.get("score_movement", [])
+    if levels:
+        print("  register score movement (VISION §5 levels):")
+        for change in levels:
+            print(f"    row {change['row']}: level {change['from']} → {change['to']} ▲")
+    else:
+        print("  register score movement: none")
     if report["calibration"]:
         print("  calibration in window:")
         for label, stats in sorted(report["calibration"].items(), key=lambda kv: -kv[1]["n"]):
@@ -504,7 +577,11 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         snapshot = scorecard_snapshot(register_path) if register_path is not None else {}
         if snapshot:
             (track_dir / f"{run_id}.register.json").write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
-        previous = sorted(track_dir.glob("*.json"))
+        scores = register_scores(register_path) if register_path is not None else {}
+        if scores:
+            (track_dir / f"{run_id}.scores.json").write_text(json.dumps(scores, indent=2), encoding="utf-8")
+            print_score_composition(scores)
+        previous = run_files(track_dir)
         if len(previous) >= 2:  # newest is this run
             with previous[-2].open(encoding="utf-8") as fh:
                 last = {row["scenario_id"]: row for row in json.load(fh)}
@@ -518,7 +595,7 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
                 arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "—")
                 print(f"  {row['scenario_id']}: {prev['passed_turns']} → {row['passed_turns']} passed turns {arrow}")
             if snapshot:
-                previous_registers = sorted(track_dir.glob("*.register.json"))
+                previous_registers = sidecar_files(track_dir, ".register.json")
                 if len(previous_registers) >= 2:
                     with previous_registers[-2].open(encoding="utf-8") as fh:
                         previous_snapshot = json.load(fh)
