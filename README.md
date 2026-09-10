@@ -127,7 +127,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            262 tests incl. the conformance drift guard + T-test battery
+tests/            263 tests incl. the conformance drift guard + T-test battery
 android_app/      Android companion WebView shell (KOTLIN; see its README: built by
                   Android Studio on the owner's machine, honest about sandbox limits)
 ```

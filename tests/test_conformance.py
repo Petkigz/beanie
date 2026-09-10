@@ -189,3 +189,29 @@ def test_the_faithfulness_audit_is_wired_and_documented():
     assert "--audit-explanations" in register, "the register must name the mechanism that answers §9.9"
     # the honest boundary travels with the claim, not only in a commit message
     assert "recorded trace" in register, "the register must state what the audit does not prove"
+
+
+def test_first_session_runbook_quotes_are_real_code_strings():
+    """The runbook is an evidence instrument: its quoted phrasings must be
+    verbatim substrings of the code, or the owner's first session meets a
+    different machine than the docs promised (row 35: docs never outrun the
+    machine)."""
+    code_sources = []
+    for name in ("mind.py", "automation.py", "webui.py"):
+        code_sources.append((ROOT / "src" / "beanie" / name).read_text(encoding="utf-8"))
+    code = "\n".join(code_sources)
+    runbook = (ROOT / "FIRST_SESSION.md").read_text(encoding="utf-8")
+    fragments = [
+        "no untouched alternatives remain on this machine",
+        "Your outside door stays open:",
+        "Resolved '",
+        "you may gui_control",
+        "Done — '",
+        "nothing was guessed",
+        "couldn't reach the web",
+        "a live lookup from DuckDuckGo",
+        "say 'you may {capability}' to allow it",
+        "isn't on this machine",
+    ]
+    for fragment in fragments:
+        assert fragment in code, f"runbook quotes a phrase the code never says: {fragment!r}"

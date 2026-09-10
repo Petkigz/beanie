@@ -31,15 +31,19 @@ for row 35 (`--status` pronounced correctly on a real box).
 ```
 
 1. `play me kaba`
-   → **First time:** *"I'm indexing your files first — one moment"* … then either
-   serves a local match via the dry-run preview (row 42), or answers
-   *"no local match for 'kaba' — your outside door: <youtube search url>"* (rows 43–44).
+   → served locally: *"I found 'kaba.mp3' at /music/… (1 of 3). I can do this, but
+   play_media needs your permission first — say 'you may play_media' to allow it…"* (row 42 local-first + the
+   ask), or, if nothing on disk: *"'kaba' isn't on this machine. I could open the
+   search results on YouTube (<url>) — <the ask>"* (row 43 honest absence; grant
+   `open_url` once). The first play also builds the file index silently.
    Ask **in your phone in the WebUI** (`make webui`, open `http://<pc-ip>:8080`):
    say the same sentence; the pending permission ask appears as ⚠ chips with
    **Allow / Never**. Tap Allow once — the PC obeys the rule everywhere afterwards.
 2. `no, the other one` (after a multi-match serve)
-   → walks the **media trail**: *"(2 of 4)"* until exhaustion, which ends with
-   *"...no untouched alternatives remain on this machine... outside door: <url>"*.
+   → walks the **media trail**: *"Next match, then: I found … (2 of 4)"* until
+   exhaustion, which ends with *"'x.mp3' was the last local match (4 of 4) — no
+   untouched alternatives remain on this machine for 'kaba'. Your outside door stays
+   open: <youtube search url>"* (silence-wrapping to the first match would be a lie).
 3. `install obs studio`
    → *"Resolved 'obs studio' → OBSProject.OBSStudio (…); also matching: OBS Virtual Camera"*
    then the **permission ask** with the exact `winget/apt/brew` command previewed.
