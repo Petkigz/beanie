@@ -67,4 +67,24 @@ def test_usefulness_report_buckets_ratings_by_label(tmp_path):
     mind.step("hello there")
     mind.step("that was useful")
     report = usefulness_report(mind.trace.events)
-    assert report["highly confident"] == {"n": 1, "sum": 5, "mean": 5.0}
+    assert report["ratings_by_label"]["highly confident"] == {"n": 1, "sum": 5, "mean": 5.0}
+
+
+def test_implicit_signals_follow_up_and_abandonment(tmp_path):
+    """§8 implicit side: engagement vs walking away from an unresolved thread."""
+    mind = Mind(state_dir=tmp_path / "mind")
+    mind.step("the server config is missing")   # fails: missing context
+    mind.step("the server config file is over there")  # same subject → follow-up
+    report = usefulness_report(mind.trace.events)
+    assert report["signals"].get("follow_up") == 1
+
+    mind2 = Mind(state_dir=tmp_path / "mind2")
+    mind2.step("the server config is missing")   # unresolved gap
+    mind2.step("let us talk about holidays instead")  # walks away
+    report2 = usefulness_report(mind2.trace.events)
+    assert report2["signals"].get("abandonment") == 1
+
+    mind3 = Mind(state_dir=tmp_path / "mind3")
+    mind3.step("hello there")
+    mind3.step("what is the weather")  # nothing unresolved → no signal
+    assert usefulness_report(mind3.trace.events)["signals"] == {}

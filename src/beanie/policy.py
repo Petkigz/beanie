@@ -69,6 +69,9 @@ class EffortPolicy:
             elif kind == "feedback":
                 if int(payload.get("score", 5)) <= 2:
                     low_ratings.add(event.turn_id)
+            elif kind == "usefulness" and payload.get("signal") == "abandonment":
+                # implicit verdict: the owner walked away from what that turn left open
+                low_ratings.add(str(payload.get("about_turn", "")))
         reflex_class: list[tuple[str, bool]] = []
         for turn_id, succeeded in outcomes.items():
             meta = meta_by_turn.get(turn_id)

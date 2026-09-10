@@ -128,6 +128,7 @@ def usefulness_report(events: list) -> dict[str, dict]:
     """
     labels: dict[str, str] = {}
     scores: dict[str, list[int]] = {}
+    signals: dict[str, int] = {}
     for event in events:
         kind = getattr(event, "kind", None)
         payload = getattr(event, "payload", {})
@@ -136,9 +137,15 @@ def usefulness_report(events: list) -> dict[str, dict]:
         elif kind == "feedback":
             label = labels.get(event.turn_id, "unlabeled")
             scores.setdefault(label, []).append(int(payload.get("score", 0)))
+        elif kind == "usefulness":
+            signal = str(payload.get("signal", ""))
+            signals[signal] = signals.get(signal, 0) + 1
     return {
-        label: {"n": len(values), "sum": sum(values), "mean": round(sum(values) / len(values), 2)}
-        for label, values in sorted(scores.items())
+        "ratings_by_label": {
+            label: {"n": len(values), "sum": sum(values), "mean": round(sum(values) / len(values), 2)}
+            for label, values in sorted(scores.items())
+        },
+        "signals": dict(sorted(signals.items())),
     }
 
 
@@ -409,16 +416,22 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
             accuracy = round((stats["n"] - stats["failures"]) / stats["n"], 3)
             print(f"  {label:<18} n={stats['n']:<3} failures={stats['failures']:<3} accuracy={accuracy}")
     ratings: dict[str, dict[str, int]] = {}
+    signal_counts: dict[str, int] = {}
     for row in payload:
-        for label, stats in (row.get("usefulness") or {}).items():
+        usefulness = row.get("usefulness") or {}
+        for label, stats in (usefulness.get("ratings_by_label") or {}).items():
             bucket = ratings.setdefault(label, {"n": 0, "sum": 0})
             bucket["n"] += stats["n"]
             bucket["sum"] += stats.get("sum", 0)
+        for signal, count in (usefulness.get("signals") or {}).items():
+            signal_counts[signal] = signal_counts.get(signal, 0) + count
     if ratings:
         print("\nUsefulness (explicit owner ratings, T13):")
         for label, stats in sorted(ratings.items(), key=lambda kv: -kv[1]["n"]):
             mean = round(stats["sum"] / stats["n"], 2) if stats["n"] else 0
             print(f"  {label:<18} n={stats['n']:<3} mean_rating={mean}")
+    if signal_counts:
+        print("  implicit signals (§8): " + ", ".join(f"{k}={v}" for k, v in sorted(signal_counts.items())))
     if out_path is not None:
         out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if track_dir is not None:

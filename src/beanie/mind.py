@@ -88,6 +88,19 @@ _RATING_NEGATIVE = ("useless", "unhelpful", "not useful", "not helpful",
                     "wrong", "not right", "didn't help", "did not help")
 
 
+_SIGNAL_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "at", "it", "is", "was",
+    "be", "for", "with", "that", "this", "you", "i", "me", "my", "your", "please",
+    "do", "did", "does", "can", "could", "would", "should", "now", "then", "about",
+    "here", "there", "what", "why", "how", "when", "so", "if", "not", "no", "yes",
+})
+
+
+def _signal_tokens(text: str) -> set[str]:
+    """Content words used to judge whether a turn follows up on the last one."""
+    return {w for w in re.findall(r"[a-z0-9_\.]+", text.lower()) if w not in _SIGNAL_STOPWORDS and len(w) > 2}
+
+
 def parse_usefulness_rating(text: str) -> Optional[int]:
     """Return 1–5 for an explicit usefulness remark about the last answer, else None.
 
@@ -198,6 +211,7 @@ class Mind:
         self._last_turn_record: Optional[str] = None
         self._current_turn_id: str = ""
         self._previous_turn_id: str = ""
+        self._previous_user_text: str = ""
 
     # ======================================================================
     # Owner input
@@ -209,6 +223,8 @@ class Mind:
         text = user_text.strip()
         self._previous_turn_id = self._current_turn_id
         self._current_turn_id = turn_id
+        self._record_implicit_usefulness(turn_id, text)
+        self._previous_user_text = text  # for the next turn's signal judgement
 
         # 1) prospective memory: set or cancel an intention (§3.7)
         if _CANCEL_REMARK_RE.match(text):
@@ -798,6 +814,34 @@ class Mind:
         from .calibration import UsefulnessTracker
 
         UsefulnessTracker().rate(self.trace, turn_id, score, note)
+
+    def _record_implicit_usefulness(self, turn_id: str, text: str) -> Optional[str]:
+        """Record follow-up / abandonment as usefulness signals (§8 implicit side).
+
+        Deterministic and conservative: a turn that shares content words with
+        the previous owner turn is a *follow-up* (engagement); a turn that
+        walks away from a previous turn left unresolved (open question or
+        failed outcome) without touching its words is *abandonment* — the
+        owner gave up on that thread. Pure statements with nothing unresolved
+        about the previous turn record nothing.
+        """
+        if not self._previous_turn_id or not self._previous_user_text:
+            return None
+        previous_tokens = _signal_tokens(self._previous_user_text)
+        overlap = previous_tokens & _signal_tokens(text)
+        if overlap:
+            signal = "follow_up"
+        else:
+            previous_failed = any(
+                e.kind == "outcome" and e.turn_id == self._previous_turn_id
+                and e.failure is not None and e.failure.value != "none"
+                for e in self.trace.events
+            )
+            if not previous_failed:
+                return None
+            signal = "abandonment"
+        self.trace.append(turn_id, "usefulness", {"signal": signal, "about_turn": self._previous_turn_id})
+        return signal
 
     def _rate_last(self, turn_id: str, text: str, score: int) -> Reply:
         """Attach the owner's usefulness verdict to the answer it is about.
