@@ -85,4 +85,12 @@ These need an owner's decision, not permission to build:
 
 Also still explicitly open, and recorded as such in the register: the graph/relational
 index at true human-scale history (§9.2 — appends are now flat-rate, the recall structure
-is not), the fine-tune path (§9.4), and faithful-explanation auditing (§9.9).
+is not) and the fine-tune path (§9.4).
+
+**Explanation faithfulness (§9.9) is now answered, with its boundary stated.** Explanations
+are provenance-first, and `python -m beanie.cli --audit-explanations` re-resolves every
+citation against the trace: unknown citations, value drift, unrendered values, silent
+material inputs and unbacked summaries all fail, and turns without a decision trace are
+reported rather than passed. What it does *not* prove: that the trace captured everything
+the substrate did internally — that needs a model tier whose internals can be read, and it
+stays recorded as open in ARCHITECTURE §9.9 rather than papered over.

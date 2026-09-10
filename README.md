@@ -56,7 +56,11 @@ src/beanie/
   intention.py    prospective memory: turn-count, wall-clock + conditional "when X appears" (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
   mind.py         self-model introspection (row 35), low-confidence caveats (Q13), usefulness ratings + knowledge export/import (T13/Q15)
-  explain.py      explanation service, auditable, on demand (§4.5/T10)
+  explain.py      provenance-first explanation service: every sentence is a claim with
+                  its citation, rendered from it (§4.5/T10)
+  faithfulness.py the §9.9 audit protocol: re-resolves every citation in every
+                  recorded turn and fails unknown citations, value drift, silent
+                  material inputs and unbacked summaries
   cognition.py    effort allocation, devil's advocate, curiosity gaps (§4.6/4.7)
   affect.py       owner-model affect observations: tone read from the owner's words,
                   cited back on request, raises the effort floor when frustrated (§3.5)
@@ -69,12 +73,13 @@ src/beanie/
                   snapshots, trailing-window report (suite delta, register + level movement,
                   stagnation prompt, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
-                  the configured model tier
+                  the configured model tier, --audit-explanations runs the §9.9
+                  faithfulness audit over every recorded decision
 Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            151 tests incl. the conformance drift guard + T-test battery
+tests/            164 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)

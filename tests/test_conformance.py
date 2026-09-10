@@ -173,3 +173,19 @@ def test_every_top_level_doc_is_linked_from_the_readme():
     docs = sorted(p.name for p in ROOT.glob("*.md") if p.name != "README.md")
     missing = [name for name in docs if f"./{name}" not in readme]
     assert not missing, f"top-level docs missing from the README: {missing}"
+
+
+def test_the_faithfulness_audit_is_wired_and_documented():
+    """§9.9 is answered in code, and the docs must say how to run it."""
+    audit = ROOT / "src" / "beanie" / "faithfulness.py"
+    assert audit.exists(), "the §9.9 audit protocol is gone"
+
+    register = (ROOT / "CAPABILITY_REGISTER.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    cli = (ROOT / "src" / "beanie" / "cli.py").read_text(encoding="utf-8")
+
+    assert "--audit-explanations" in cli, "the audit must be reachable from the CLI"
+    assert "--audit-explanations" in readme, "README must tell the owner how to run the audit"
+    assert "--audit-explanations" in register, "the register must name the mechanism that answers §9.9"
+    # the honest boundary travels with the claim, not only in a commit message
+    assert "recorded trace" in register, "the register must state what the audit does not prove"

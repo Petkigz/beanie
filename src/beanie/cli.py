@@ -25,12 +25,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="run N background-cognition passes (idle budget) and print what they did")
     parser.add_argument("--check-model", action="store_true",
                         help="ping the configured model tier (BEANIE_MODEL_URL) and exit")
+    parser.add_argument("--audit-explanations", action="store_true",
+                        help="run the §9.9 faithfulness audit over every recorded decision and exit")
     args = parser.parse_args(argv)
 
     if args.check_model:
         return _check_model()
 
     mind = Mind(state_dir=Path(args.state_dir))
+
+    if args.audit_explanations:
+        return _audit_explanations(mind)
 
     if args.tick:
         for _ in range(args.tick):
@@ -67,6 +72,24 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print()
     return 0
+
+
+def _audit_explanations(mind: Mind) -> int:
+    """§9.9: prove each explanation cites the actual reasons, not plausible ones."""
+    from .faithfulness import audit_mind
+
+    reports, summary = audit_mind(mind)
+    if not reports:
+        print("explanation audit: no decisions on record yet — talk to the mind first.")
+        return 0
+    for report in reports:
+        print(report.to_text() if not report.faithful else f"turn {report.turn_id}: faithful")
+    print(
+        f"explanation audit: {summary['turns']} turn(s), {summary['faithful']} faithful, "
+        f"{summary['violations']} violation(s), {summary['claims']} claim(s) checked"
+        + (f", {summary['unaudited']} turn(s) with no decision trace" if summary.get("unaudited") else "")
+    )
+    return 1 if summary["violations"] else 0
 
 
 def _check_model() -> int:

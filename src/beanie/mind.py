@@ -229,6 +229,7 @@ class Mind:
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
+        self._last_episode_turn = ""
         self._current_turn_id: str = ""
         self._previous_turn_id: str = ""
         self._previous_user_text: str = ""
@@ -247,6 +248,8 @@ class Mind:
         """
         turn_id = self._new_turn_id()
         text = user_text.strip()
+        self._organ_hint = None  # each routing branch declares itself as it runs
+        self._last_episode_turn = ""  # which turn last created an episode
         self._previous_turn_id = self._current_turn_id
         self._current_turn_id = turn_id
         self._record_implicit_usefulness(turn_id, text)
@@ -262,14 +265,56 @@ class Mind:
         return reply
 
     def _dispatch(self, turn_id: str, text: str) -> Reply:
+        """Route one utterance, then make sure every turn has a recorded reason.
+
+        Directive turns are answered by deterministic organs, not by a model
+        tier, so they used to record no decision event at all — and an answer
+        with no recorded reason cannot be explained or audited (§4.5, §9.9).
+        The wrapper records which organ actually produced the reply, inferred
+        from the events the turn itself left behind (never invented).
+        """
+        reply = self._route(turn_id, text)
+        events = self.trace.events_for(turn_id)
+        if not any(event.kind == "decision" for event in events):
+            self.trace.append(
+                turn_id, "decision",
+                {"candidate": "", "reply": reply.text[:200], "label": reply.confidence_label,
+                 "depth": "deterministic", "escalated_from": None,
+                 "handler": self._turn_organ(turn_id),
+                 "concerns": [], "residual": "", "calibration": {}},
+            )
+        # a turn that created an episode links it here: an unlinked record
+        # cannot be cited by the explanation service, and an answer whose
+        # record is invisible is an answer that cannot be audited (§4.5, §9.9)
+        if self._last_episode_turn == turn_id and not any(event.kind == "outcome" for event in events):
+            self.trace.append(
+                turn_id, "outcome",
+                {"record_id": self._last_turn_record, "success": reply.success,
+                 "label": reply.confidence_label},
+                failure=None,
+            )
+        return reply
+
+    # Which organ answered a deterministic turn. Each routing branch *declares*
+    # it as it runs (never inferred after the fact), so the explanation names
+    # the code path that actually produced the reply (§9.9). A forgotten
+    # declaration degrades to an honest generic phrase, never to a wrong organ.
+    _ORGAN_FALLBACK = "the direct reply handler — a rule in the conversation layer, not a model tier"
+
+    def _turn_organ(self, turn_id: str) -> str:
+        return self._organ_hint or self._ORGAN_FALLBACK
+
+    def _route(self, turn_id: str, text: str) -> Reply:
         """Route one stripped utterance to its directive or to default cognition."""
         # 1) prospective memory: set or cancel an intention (§3.7)
         if _CANCEL_REMARK_RE.match(text):
             cancelled = self.intentions.cancel_matching(text)
             if cancelled is not None:
+                self._organ_hint = "prospective memory (§3.7) — a pending reminder was cancelled"
                 return self._directive_reply(turn_id, "Reminder cancelled.", success=True)
         parsed_intention = parse_intention(text)
         if parsed_intention is not None:
+            self._organ_hint = "prospective memory (§3.7) — an intention was set for a later turn"
             entry = self.intentions.add(parsed_intention, origin_turn=turn_id)
             self.trace.append(turn_id, "intention", {"intention_id": entry.id, "action": parsed_intention.action})
             return self._directive_reply(
@@ -281,12 +326,14 @@ class Mind:
 
         # 2) preference statements → owner model (T4)
         if _PREF_RE.match(text):
+            self._organ_hint = "the preference store (§3.4) — a stated preference was learned"
             return self._learn_preference(turn_id, text)
 
         # 3) authority statements → durable rules (§5)
         authority_rule = parse_authority_statement(text)
         if authority_rule is not None:
             capability, action = authority_rule
+            self._organ_hint = "the authority gate (§5) — a permission rule changed"
             rule = self.gate.grant(capability, action)
             resolved = self._resolve_permission_requests(turn_id, capability, action)
             self.trace.append(turn_id, "authority",
@@ -302,6 +349,7 @@ class Mind:
         # 4) what-if questions → simulated prediction, body untouched (rows 10–11)
         what_if = parse_what_if(text)
         if what_if is not None:
+            self._organ_hint = "the simulator (§3.3) — a prediction; nothing was executed"
             return self._what_if(turn_id, text, what_if)
 
         # 5) "where is X?" → world-model location lookup (row 11)
@@ -309,6 +357,7 @@ class Mind:
         if where:
             handled = self._where_is(turn_id, text, where.group(1).strip())
             if handled is not None:
+                self._organ_hint = "world state (§3.2) — a location fact was looked up"
                 return handled
 
         # 6) "how do you organize …?" → teach the owner the learned rule (row 34)
@@ -316,37 +365,45 @@ class Mind:
         if how:
             handled = self._teach_rule(turn_id, text, how.group(1).strip())
             if handled is not None:
+                self._organ_hint = "the planner's learned-skill store (§4.1) — the confirmed rule was explained"
                 return handled
 
         # 7) owner-tone read-back → owner model, cited (row 33 proxy)
         if _AFFECT_QUERY_RE.match(text):
+            self._organ_hint = "the affect read-back (§3.5) — an observation, not a claim of feeling"
             return self._read_back_owner_tone(turn_id, text)
 
         # 8) introspection — the self-model answers about itself (row 35)
         if _INTROSPECT_RE.match(text):
+            self._organ_hint = "the self-model (§3.8) — an introspective report about my own state"
             return self._introspect(turn_id, text)
 
         # 9) belief statements ("i think that X is Y") → owner belief layer (§3.5)
         if _BELIEF_RE.match(text):
+            self._organ_hint = "the belief layer (§3.5) — stored as your belief, apart from facts"
             return self._note_belief(turn_id, text)
 
         # 10) commanded memory ("remember that …") → semantic store via §3.6
         remember = _REMEMBER_RE.match(text)
         if remember:
+            self._organ_hint = "the memory store (§3.1) — a fact was retained with its evidence"
             return self._remember(turn_id, remember.group(1).strip())
 
         # 11) explanation on demand (§4.5 / T10)
         if _EXPLAIN_RE.match(text):
+            self._organ_hint = "the explanation service (§4.5) — this reply is itself an explanation"
             return self._explain_last(turn_id, text)
 
         # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
         if correction:
+            self._organ_hint = "the correction channel (§4.4) — records were revised, not overwritten"
             return self._handle_correction(turn_id, text, correction.group(1).strip())
 
         # 13) explicit usefulness feedback about the last answer (§8/T13)
         rating = parse_usefulness_rating(text)
         if rating is not None:
+            self._organ_hint = "the usefulness tracker (§8) — your explicit rating was applied"
             return self._rate_last(turn_id, text, rating)
 
         # 14) default cognition path (§4.1)
@@ -821,7 +878,9 @@ class Mind:
             # T5: an unknown goal class is a recorded gap, not a silent shrug
             self.curiosity.open_question(goal[:60], f"no skill found for goal: {goal}")
             self.trace.append("act", "plan", {"goal": goal, "questions": questions})
-            return PlanResult(skill_id=None, steps=[], outcome="needs_information")
+            gap = PlanResult(skill_id=None, steps=[], outcome="needs_information")
+            self._record_action_decision(goal, gap)
+            return gap
         result = self.executor.execute(plan)
         # world model update from own actions: moved files are now at their
         # new locations (object permanence — row 11, Domain A)
@@ -865,7 +924,29 @@ class Mind:
             )
         elif result.outcome == "success" and result.repairs == 0:
             self._log_learning_episode(user_text=goal, content={"plan_succeeded": True, "goal": goal})
+        self._record_action_decision(goal, result)
         return result
+
+    def _record_action_decision(self, goal: str, result: "PlanResult") -> None:
+        """Action turns record the same decision event owner turns do.
+
+        A goal execution is a decision the mind made (§7) — which skill ran, and
+        what the authority gate allowed — so it must be explainable and
+        auditable like any other turn (T10, §9.9), not an untraceable side effect.
+        """
+        if result.skill_id:
+            reply = f"executed skill {result.skill_id} for '{goal}' — {result.outcome}"
+            handler = "the action layer (§7) — a learned skill executed in the sandbox"
+        else:
+            reply = f"no skill matched '{goal}' — nothing was executed"
+            handler = "the action layer (§7) — no skill matched this goal, so the body was untouched"
+        confidence = 0.9 if result.outcome in ("success", "needs_permission") else 0.4
+        self.trace.append(
+            "act", "decision",
+            {"candidate": "", "reply": reply[:200], "label": confidence_label(confidence),
+             "depth": "deterministic", "escalated_from": None, "handler": handler,
+             "concerns": [], "residual": "", "calibration": {}},
+        )
 
     # ======================================================================
     # Feedback & explanation
@@ -1423,6 +1504,7 @@ class Mind:
             "reply": reply_text,
             "success": success,
             "failure": failure.value if failure else None,
+            "turn_id": turn_id,  # lets an explanation cite the decision trace (§9.9)
             **extra,
         }
         entry = Entry(
@@ -1438,6 +1520,7 @@ class Mind:
         )
         self.episodes.append(entry)
         self._last_turn_record = record_id
+        self._last_episode_turn = turn_id
         return entry
 
     def _log_learning_episode(self, *, user_text: str, content: dict[str, Any]) -> Entry:

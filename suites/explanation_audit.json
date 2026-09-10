@@ -1,6 +1,6 @@
 {
   "id": "explanation_audit",
-  "description": "Explanation on demand (T10/§4.5): the mind cites its record, source, and residual uncertainty instead of asserting from nowhere.",
+  "description": "Explanation on demand (T10/§4.5, §9.9): the mind cites its record, its evidence, the effort and the confidence reasoning behind the answer — including which organ answered — instead of asserting from nowhere.",
   "turns": [
     {
       "user": "remember that server_e is in kigali",
@@ -8,7 +8,7 @@
     },
     {
       "user": "explain your last answer",
-      "expect": "residual uncertainty"
+      "expect": "how much effort it took"
     },
     {
       "user": "walk me through what you just said",
