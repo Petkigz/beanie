@@ -73,3 +73,40 @@ def test_unplannable_screen_is_reported_as_could_not_complete_never_as_done(tmp_
     assert "could not complete" in reply.text.lower()
     assert "done" not in reply.text.lower().replace("not complete", "")
     assert driver.executed == []                    # a stopped loop clicked nothing
+
+
+def test_budget_stop_pauses_and_continue_resumes_the_same_goal(tmp_path, monkeypatch):
+    """The budget reply promises 'say continue' — that promise is kept (§11.3).
+    The screen itself is the memory: the resumed run re-reads the world rather
+    than replaying stale history."""
+    from beanie.automation import VirtualGUIDriver
+    from beanie.substrate import StubSubstrate
+
+    monkeypatch.delenv("BEANIE_AUTOMATION", raising=False)
+    mind = Mind(state_dir=tmp_path / "state",
+                substrate=StubSubstrate(scripted_gui_actions=[
+                    *[{"type": "click", "target": f"step{i}"} for i in range(8)],  # exhausts the budget
+                    {"type": "done", "reason": "finished after resuming"},
+                ]))
+    driver = VirtualGUIDriver(screens=["setup wizard"])
+    mind._gui_driver_override = driver
+    mind.step("you may gui_control")
+
+    reply = mind.step("take over and do the remaining setup steps")
+    assert reply.success is False
+    assert "budget" in reply.text and "continue" in reply.text
+    assert mind._gui_paused is not None and "setup steps" in mind._gui_paused[0]
+
+    reply2 = mind.step("continue")                          # the promise, invoked
+    assert reply2.success is True
+    assert len(driver.executed) == 8                        # exactly the eight gated clicks —
+                                                            # the resumed 'done' executes nothing
+    assert mind._gui_paused is None                         # completed tasks leave no stale pause
+
+
+def test_continue_with_nothing_paused_says_so_honestly(tmp_path, monkeypatch):
+    monkeypatch.delenv("BEANIE_AUTOMATION", raising=False)
+    mind = Mind(state_dir=tmp_path / "state")
+    reply = mind.step("continue")
+    assert reply.success is False
+    assert "Nothing is paused" in reply.text

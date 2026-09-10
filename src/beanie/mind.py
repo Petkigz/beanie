@@ -82,6 +82,12 @@ _BELIEF_RE = re.compile(
     re.IGNORECASE,
 )
 #: owner statements that start a correction (ARCHITECTURE §4.4)
+# resuming a paused takeover: "continue" → the paused goal gets another budget
+_GUI_CONTINUE_RE = re.compile(
+    r"^\s*(?:please\s+)?(continue(?:\s+that|\s+the\s+task)?|keep\s+going|go\s+on)\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+
 # supervised GUI takeover: "log me in to github", "sign in to whatsapp", "automate this"
 _GUI_TASK_RE = re.compile(
     r"^\s*(?:please\s+)?(log\s+me\s+in\s+to|log\s+in\s+to|sign\s+me\s+in\s+to|sign\s+in\s+to|"
@@ -271,6 +277,7 @@ class Mind:
         self._media_trail_target = ""
         self._gui_driver_override: Any = None      # tests/demos inject scripted limbs
         self._gui_driver_cached: Any = None
+        self._gui_paused: Optional[tuple[str, str]] = None  # (goal, note) from a budget stop
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
@@ -454,6 +461,25 @@ class Mind:
             self._organ_hint = ("the supervised navigator (§11.3) — the request asked for a "
                                 "GUI takeover; the limb drove, the authority gate supervised")
             return self._gui_takeover(turn_id, text, gui_match.group("goal").strip())
+
+        # 11b.6) resume a budget-paused takeover: "continue" is only meaningful
+        # because the mind actually kept the paused goal — the promise in the
+        # budget reply is a promise this branch keeps (§11.3)
+        if _GUI_CONTINUE_RE.match(text) and self._gui_paused is not None:
+            self._organ_hint = "the supervised navigator (§11.3) — resuming a budget-paused takeover"
+            paused_goal, _note = self._gui_paused
+            self._gui_paused = None
+            return self._gui_takeover(turn_id, f"continue {paused_goal}", paused_goal)
+        if _GUI_CONTINUE_RE.match(text):
+            self._organ_hint = "the supervised navigator (§11.3) — nothing is paused to continue"
+            reply = Reply(
+                text=("Nothing is paused — 'continue' resumes a takeover that stopped at its "
+                      "action budget, and no takeover is waiting. Name the task and I'll take it on."),
+                confidence=0.9, confidence_label=confidence_label(0.9),
+                turn_id=turn_id, success=False)
+            self._record_episode(turn_id, reply.text, 0.9, False, None,
+                                 extra={"user_text": text, "outcome": "nothing_paused"})
+            return reply
 
         # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
@@ -1442,10 +1468,12 @@ class Mind:
             text_out = report.permission_question
             confidence, ok = 0.9, False
         elif outcome == "completed":
+            self._gui_paused = None
             text_out, confidence, ok = (f"Done — '{turn_goal}' completed under supervision: "
                                         f"{action_count} action{'s' if action_count != 1 else ''} "
                                         f"({report.note}), every one logged in the trace."), 0.9, True
         elif outcome == "budget":
+            self._gui_paused = (turn_goal, report.note)
             text_out, confidence, ok = (f"'{turn_goal}' is not finished — the loop hit its budget "
                                         f"after {action_count} action{'s' if action_count != 1 else ''} "
                                         f"({report.note}). A paused task is not a done task; say "

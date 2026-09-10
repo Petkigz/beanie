@@ -107,7 +107,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            252 tests incl. the conformance drift guard + T-test battery
+tests/            255 tests incl. the conformance drift guard + T-test battery
 android_app/      Android companion WebView shell (KOTLIN; see its README: built by
                   Android Studio on the owner's machine, honest about sandbox limits)
 ```
@@ -167,6 +167,7 @@ logged, never improvised over.
 
 ```bash
 .venv/bin/python -m beanie.cli --status          # organ seating chart: what's ON, the switch for what isn't
+.venv/bin/python -m beanie.cli --speak           # replies spoken aloud (BEANIE_VOICE=1 + espeak/spd-say)
 .venv/bin/python -m beanie.webui --state-dir .beanie_state --host 0.0.0.0 --port 8080   # or: make webui
 # open http://<pc>:8080 in any browser — chat, tick button, live state chips,
 # mic (browser speech recognition) + spoken answers (browser TTS), zero installs
