@@ -79,6 +79,10 @@ src/beanie/
                   citable why for every hit
   streaming.py    streaming fallback (§11.2): YouTube top-result resolution with an
                   honest search-page fallback when a specific video can't be resolved
+  research.py     learning from the outside world (§11.1): YouTube caption-track
+                  discovery, timedtext transcript parsing, cue-based step extraction,
+                  and the source-packet the tier gap-checks ("what doesn't this
+                  source cover?") — pixels are never claimed as understood
   body.py         sandbox + opt-in OS body; four-state authority gate (§5/§7); the OS
                   body also opens files/URLs, plays media, installs software and runs
                   docker sandboxes — command builders per platform, dry-run first (§11.4)
@@ -103,7 +107,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            216 tests incl. the conformance drift guard + T-test battery
+tests/            226 tests incl. the conformance drift guard + T-test battery
 android_app/      Android companion WebView shell (KOTLIN; see its README: built by
                   Android Studio on the owner's machine, honest about sandbox limits)
 ```

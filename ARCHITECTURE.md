@@ -438,7 +438,7 @@ Module → spec map: `records` §3 envelope · `stores` §3.1–3.7 · `belief` 
 the body, never touching it) · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
 `cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1 (incl. relevance-aware recall,
 row 7, and the owner-belief layer, row 33) · `searchindex` §11.2 · `streaming` §11.2 ·
-`decision` §11.1 · `automation` §11.3 · `android` §11.5 · `voice` §11.6 · `webui` §11.7.
+`decision` §11.1 · `automation` §11.3 · `android` §11.5 · `voice` §11.6 · `webui` §11.7 · `research` §11.1 (learning sources).
 
 Honesty ledger — what is *not* yet true: the default substrate is a documented test double
 (real tiers plug in via `HTTPSubstrate`; LM Studio is the intended local server — keyless,
@@ -594,6 +594,17 @@ trace (`media`/`body`/`phone` events ⇢ `Mind.organ_hint`) so §9.9 can audit w
 organ answered, and why it thought it could.
 
 ### 11.2 Senses — the file index (Everything-class) and streaming fallback
+
+*Learning sources* (`research.py`): when the gate says `learn`, the tier-driven path
+fetches the top YouTube result, parses its caption tracks (bracket-depth JSON, English
+preferred), converts timedtext into a transcript, extracts step-shaped lines by speech
+cues (never paraphrase), then has the tier condense a checklist **and name the source's
+gaps** — because most how-to videos omit pieces, a "what does this source NOT explain?"
+pass is part of the mechanism, and each gap lands as its own open question. A video
+without captions is treated as pictures the mind cannot yet read: the reply says so and
+hands the owner the link, versus pretending comprehension.
+
+
 
 `FileIndex` (searchindex.py) is the PC's filesystem sense: incremental multi-root
 scan skipping system/cache directories, persisted to a state file, refreshed

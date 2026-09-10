@@ -42,6 +42,7 @@ from .policy import EffortPolicy
 from .preferences import PreferenceMiner
 from .records import Entry, EvidenceRef, RecordKind, Source, confidence_label, utcnow_iso
 from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflector, StubReflector
+from .research import Researcher
 from .searchindex import FileIndex
 from .state import MindState
 from .streaming import google_search_url, youtube_search_url, youtube_top_result
@@ -1680,39 +1681,97 @@ class Mind:
                      success=True, record_id=episode.id)
 
     def _learn_flow(self, turn_id: str, text: str, need: Need) -> Reply:
-        """'I need to learn this first' is a first-class answer (§11.1, row 51),
-        never improvisation in disguise."""
+        """'I need to learn this first' is a first-class answer (§11.1, row 51) — and
+        with a live tier the learning starts immediately: find a source, read what can
+        honestly be read (its transcript), have the tier condense and gap-check it
+        ("what does this source NOT cover?" — most videos are incomplete), and name the
+        gaps as new open questions. Practice remains the next step either way."""
         target = need.target.strip()
         self.curiosity.open_question(target[:60], "declared learning task from the decision gate")
+        research: dict[str, Any] = {}
+        reply_text: Optional[str] = None
+        confidence = 0.6
         if self.substrate.name != "stub":
-            outcome = self.substrate.deep(
-                {"user_text": f"Explain concisely, in under 120 words, how to: {target}"},
-                [], candidate="teach",
-            )
-            if outcome.success and outcome.text.strip():
-                reply_text = (
-                    outcome.text.strip()[:700]
-                    + "\n\n— from my model tier's general knowledge; I treat that as a draft until "
-                    "I've practiced it. The learning task is logged: research, then sandbox practice, "
-                    "then it becomes a real skill."
+            packet = Researcher(fetch=self.youtube_fetcher).research_video(target)
+            if packet is not None and packet.transcript is not None:
+                outcome = self.substrate.deep(
+                    {"user_text": (
+                        "You are verifying a how-to video an agent uses to learn a skill.\n"
+                        f"TOPIC: {target}\n"
+                        f"TRANSCRIPT (excerpt):\n{packet.transcript.excerpt()}\n"
+                        "Write (1) a compact checklist of at most 8 numbered steps for the topic, "
+                        "using only what the transcript supports; then (2) a line starting 'GAPS:' "
+                        "naming what this source does NOT explain or covers poorly, so a second "
+                        "source can finish the job. Under 150 words."
+                    )},
+                    [], candidate="learn-verify",
                 )
-                confidence = 0.75
-            else:
-                reply_text = (f"I don't know how to '{target}' yet and my tier couldn't teach it "
-                              f"either — saying so instead of improvising. The learning task is logged.")
+                if outcome.success and outcome.text.strip():
+                    gaps_line = next(
+                        (line.strip() for line in outcome.text.splitlines()
+                         if line.strip().upper().startswith("GAPS")), "",
+                    )
+                    if ":" in gaps_line:
+                        gap_detail = gaps_line.split(":", 1)[1].strip()
+                        if gap_detail:
+                            self.curiosity.open_question(
+                                target[:44] + " — second source needed",
+                                f"first source incomplete (gap-check): {gap_detail[:160]}",
+                            )
+                    reply_text = (
+                        outcome.text.strip()[:700]
+                        + "\n\n— condensed and gap-checked by my model tier from "
+                        + packet.source_label
+                        + "; transcript text, not visual understanding. It stays unverified until "
+                        "I practice it — logged as the next step."
+                    )
+                    confidence = 0.8
+                    research = {"kind": "transcript", "video_url": packet.video_url,
+                                "title": packet.title, "steps": packet.steps}
+            elif packet is not None and packet.no_captions:
+                reply_text = (
+                    f"I found a relevant video — '{packet.title}' ({packet.video_url}) — but it has "
+                    f"no transcript I can read: it teaches in pictures, and my vision tier isn't "
+                    f"wired yet, so I can't (yet) analyze it like you would. Open it yourself — or, "
+                    f"with my OS body on, say 'you may open_url' and I'll put it on screen for you. "
+                    f"The learning task stays logged either way."
+                )
                 confidence = 0.6
+                research = {"kind": "video-no-captions", "video_url": packet.video_url,
+                            "title": packet.title}
+            if reply_text is None:
+                # no source resolved — teach from the tier's own knowledge, labelled as such
+                outcome = self.substrate.deep(
+                    {"user_text": f"Explain concisely, in under 120 words, how to: {target}"},
+                    [], candidate="teach",
+                )
+                if outcome.success and outcome.text.strip():
+                    reply_text = (
+                        outcome.text.strip()[:700]
+                        + "\n\n— from my model tier's general knowledge (no source was resolved); "
+                        "I treat that as a draft until I've practiced it. The learning task is "
+                        "logged: research, then sandbox practice, then it becomes a real skill."
+                    )
+                    confidence = 0.75
+                else:
+                    reply_text = (f"I don't know how to '{target}' yet and my tier couldn't teach it "
+                                  f"either — saying so instead of improvising. The learning task is "
+                                  f"logged.")
         else:
             reply_text = (
                 f"I don't know how to '{target}' yet — saying so instead of improvising. My plan: "
-                f"research it (web), watch how-to sources (vision), then practice in my sandbox until "
-                f"the demonstration learner turns it into a skill. Those research senses aren't wired "
-                f"yet, so the gap is logged as an open question, not faked."
+                f"research it online (text and videos the way you find them), verify each source "
+                f"for what it leaves out, then practice in my sandbox until the "
+                f"demonstration learner turns it into a skill. Those research senses need the model "
+                f"tier, so for now the gap is logged as an open question, not faked."
             )
-            confidence = 0.6
-        self.trace.append(turn_id, "learning_task", {"topic": target, "decision": need.to_dict()})
+        self.trace.append(turn_id, "learning_task",
+                          {"topic": target, "decision": need.to_dict(), "research": research})
+        extra: dict[str, Any] = {"user_text": text, "directive": "learn", "decision": need.to_dict()}
+        if research:
+            extra["research"] = research
         episode = self._record_episode(
-            turn_id, reply_text, confidence, True, None,
-            extra={"user_text": text, "directive": "learn", "decision": need.to_dict()})
+            turn_id, reply_text, confidence, True, None, extra=extra)
         return Reply(text=reply_text, confidence=confidence,
                      confidence_label=confidence_label(confidence), turn_id=turn_id,
                      success=True, record_id=episode.id)
