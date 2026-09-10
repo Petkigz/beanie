@@ -73,7 +73,7 @@ Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreatio
 suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            145 tests incl. the conformance drift guard + T-test battery
+tests/            150 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)

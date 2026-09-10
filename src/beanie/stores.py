@@ -33,12 +33,42 @@ class JsonlStore:
                     line = line.strip()
                     if line:
                         self._entries.append(Entry.from_json(line))
+        # revisions per entry id as of the last write, so a mutated entry is
+        # never lost: append() rewrites the file only when something was revised
+        self._written_revisions: dict[str, int] = {
+            entry.id: len(entry.revision_history) for entry in self._entries
+        }
 
     def append(self, entry: Entry) -> Entry:
-        """Append a new entry; the entry must not already be present."""
+        """Append a new entry; the entry must not already be present.
+
+        Append is the hot path of a mind that runs for a long time (every turn,
+        every observation), so it is O(1) when nothing was revised: the new
+        entry is written as one line. If any stored entry has been revised since
+        the last write, the file is rewritten so those changes persist exactly
+        as they did when every append rewrote the store (ARCHITECTURE §9: the
+        storage substrate has to hold at human-scale history).
+        """
         self._entries.append(entry)
-        self._flush()
+        if self._has_pending_revisions():
+            self._flush()
+        else:
+            self._append_line(entry)
+        self._written_revisions[entry.id] = len(entry.revision_history)
         return entry
+
+    def _has_pending_revisions(self) -> bool:
+        for entry in self._entries:
+            if self._written_revisions.get(entry.id, 0) != len(entry.revision_history):
+                return True
+        return False
+
+    def _append_line(self, entry: Entry) -> None:
+        if not self.path.exists():
+            self._flush()
+            return
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(entry.to_json() + "\n")
 
     def all(self) -> list[Entry]:
         return list(self._entries)
@@ -56,14 +86,16 @@ class JsonlStore:
         return len(self._entries)
 
     def _flush(self) -> None:
-        """Rewrite the whole file (entries are mutable via revise())."""
+        """Rewrite the whole file atomically (entries are mutable via revise())."""
         tmp = self.path.with_suffix(".tmp")
         with tmp.open("w", encoding="utf-8") as fh:
             for entry in self._entries:
                 fh.write(entry.to_json() + "\n")
         tmp.replace(self.path)
+        self._written_revisions = {entry.id: len(entry.revision_history) for entry in self._entries}
 
     def save_all(self) -> None:
+        """Explicit full rewrite (after revisions, deletions, bulk edits)."""
         self._flush()
 
     def __iter__(self) -> Iterator[Entry]:

@@ -662,15 +662,7 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         scores = register_scores(register_path) if register_path is not None else {}
         if scores:
             (track_dir / f"{run_id}.scores.json").write_text(json.dumps(scores, indent=2), encoding="utf-8")
-            print_score_composition(scores)
-            history: list[dict[int, int]] = []
-            for path in sidecar_files(track_dir, ".scores.json"):
-                try:
-                    raw = json.loads(path.read_text(encoding="utf-8"))
-                    history.append({int(k): int(v) for k, v in raw.items()})
-                except (json.JSONDecodeError, OSError, ValueError):
-                    continue
-            print_stagnation(history)
+            print_score_composition(scores)  # the stagnation prompt comes with the window report
         previous = run_files(track_dir)
         if len(previous) >= 2:  # newest is this run
             with previous[-2].open(encoding="utf-8") as fh:
