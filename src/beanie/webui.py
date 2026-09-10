@@ -17,6 +17,7 @@ other devices on the same LAN (the phone, the Android app concept).
 
 from __future__ import annotations
 
+import datetime
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -133,11 +134,17 @@ async function refreshState() {
   document.getElementById('backend').textContent = s.backend;
   const box = document.getElementById('state'); box.innerHTML = '';
   const chips = [];
+  if (s.today && s.today.events) chips.push('today: ' + s.today.events + ' trace events');
   if (s.open_questions) chips.push(s.open_questions + ' open question' + (s.open_questions == 1 ? '' : 's'));
   if (s.active_skills) chips.push(s.active_skills + ' active skill' + (s.active_skills == 1 ? '' : 's'));
   chips.push(s.episodes + ' episodes');
   chips.forEach(c => { const e = document.createElement('span');
     e.className = 'chip warn'; e.textContent = c; box.appendChild(e); });
+  (s.queue || []).forEach(item => {
+    if (item.kind === 'permission_ask') return;        // asks already render as buttons below
+    const e = document.createElement('span');
+    e.className = 'chip warn'; e.textContent = '⏸ ' + item.text; box.appendChild(e);
+  });
   (s.pending || []).forEach(pend => {
     const wrap = document.createElement('span'); wrap.className = 'chip warn';
     const name = document.createElement('span'); name.textContent = '⚠ ' + pend.capability + ' ×' + pend.count + ' ';
@@ -209,12 +216,16 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
                 memory = self.server.mind.memory
                 open_q = len(memory.query(kind="self", type="question", status="open"))
                 pending = self.server.mind.pending_permission_requests()
+                today = self.server.mind.day_activity(datetime.date.today())
+                queue = self.server.mind.work_queue()
                 self._json()
                 self._write(json.dumps({
                     "backend": self.server.mind.substrate.name,
                     "open_questions": open_q,
                     "pending_permissions": len(pending),
                     "pending": pending,
+                    "today": today,
+                    "queue": queue,
                     "active_skills": memory.skills.count(),
                     "episodes": memory.episodes.count(),
                 }).encode())

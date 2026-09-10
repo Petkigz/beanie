@@ -1455,6 +1455,34 @@ class Mind:
             turn_id=turn_id, success=True, record_id=episode.id, questions=questions,
         )
 
+    def day_activity(self, day: Any) -> dict[str, Any]:
+        """One day's trace, counted per event kind (§5). The record, or none."""
+        import collections
+
+        iso = day.isoformat()
+        counts = collections.Counter(
+            event.kind for event in self.trace.events if event.at.startswith(iso))
+        return {"date": iso, "events": sum(counts.values()), "kinds": dict(counts)}
+
+    def work_queue(self) -> list[dict[str, Any]]:
+        """The live queue, structured (§5): permission asks, the paused takeover,
+        parked incubator problems. Used by the conversation route AND the WebUI."""
+        queue: list[dict[str, Any]] = [
+            {"kind": "permission_ask", "capability": ask["capability"], "count": ask["count"],
+             "text": f"a permission ask for {ask['capability']} ×{ask['count']}",
+             "grant": f"you may {ask['capability']}"}
+            for ask in self.pending_permission_requests()
+        ]
+        if self._gui_paused is not None:
+            goal, _note = self._gui_paused
+            queue.append({"kind": "paused_takeover", "goal": goal,
+                          "text": f"a paused GUI takeover: '{goal}'", "resume": "continue"})
+        for entry in self.memory.query(kind="self", type="open_problem", status="parked")[:3]:
+            problem = str(entry.content.get("problem", "?"))[:60]
+            queue.append({"kind": "parked_problem", "problem": problem,
+                          "text": f"a parked problem: '{problem}' (incubator)"})
+        return queue
+
     def _overseer_digest(self, turn_id: str, text: str, which: str) -> Reply:
         """'what did we do today?' — count the day from the trace, not from memory (§5).
 
@@ -1465,8 +1493,8 @@ class Mind:
         import datetime as _dt
 
         day = _dt.date.today() if which == "today" else _dt.date.today() - _dt.timedelta(days=1)
-        counts = collections.Counter(
-            event.kind for event in self.trace.events if event.at.startswith(day.isoformat()))
+        snapshot = self.day_activity(day)
+        counts = collections.Counter(snapshot["kinds"])
         if not counts:
             body = (f"I have nothing on record for {day.isoformat()} — no turns, no decisions, "
                     f"no actions. The trace covers every turn, so that means nothing happened, "
@@ -1495,16 +1523,13 @@ class Mind:
         an empty queue is stated as empty.
         """
         live: list[str] = []
-        for ask in self.pending_permission_requests():
-            live.append(f"a permission ask for {ask['capability']} ×{ask['count']} — "
-                        f"'you may {ask['capability']}' allows it")
-        if self._gui_paused is not None:
-            goal, _note = self._gui_paused
-            live.append(f"a paused GUI takeover: '{goal}' — 'continue' resumes it")
-        parked = self.memory.query(kind="self", type="open_problem", status="parked")
-        for entry in parked[:3]:
-            live.append(f"a parked problem: '{str(entry.content.get('problem', '?'))[:60]}' "
-                        f"(incubator; it resurfaces when new evidence arrives)")
+        for item in self.work_queue():
+            if item["kind"] == "permission_ask":
+                live.append(f"{item['text']} — '{item['grant']}' allows it")
+            elif item["kind"] == "paused_takeover":
+                live.append(f"paused: '{item['goal']}' — '{item['resume']}' resumes it")
+            else:
+                live.append(f"{item['text']} (incubator; it resurfaces when new evidence arrives)")
         if not live:
             body = ("Nothing live and nothing pending — no unanswered permission asks, no paused "
                     "takeover, no parked problems. Idle budget ticks are the only background work.")

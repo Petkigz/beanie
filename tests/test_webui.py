@@ -182,3 +182,34 @@ def test_organ_status_marks_a_live_model_tier_reachable(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_state_endpoint_carries_the_day_digest_and_live_queue(tmp_path, monkeypatch):
+    """§11.7/§5: the window shows the overseer the same record the
+    conversation answers from — today counted from the trace, the live queue
+    itemised (asks with grant sentences, paused/parked work)."""
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    mind = Mind(state_dir=tmp_path / "state")
+    server = make_server(mind, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.address
+        client = http.client.HTTPConnection(host, port, timeout=10)
+        _post(client, "/api/step", {"text": "hello there"})       # produce a day
+        from beanie.planning import PlanResult
+        result = PlanResult(skill_id="sk", steps=[], outcome="needs_permission")
+        result.last_result = {"capability": "open_url"}
+        assert mind._note_permission_need("open the dashboard", result)
+
+        status, state_body = _get(client, "/api/state")
+        state = json.loads(state_body)
+        assert state["today"]["events"] >= 1
+        assert state["today"]["date"][:4].isdigit() and "-" in state["today"]["date"]
+        asks = [item for item in state["queue"] if item["kind"] == "permission_ask"]
+        assert any(item["capability"] == "open_url" and "you may open_url" in " ".join(
+            [item.get("grant", "")]) for item in asks)
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
