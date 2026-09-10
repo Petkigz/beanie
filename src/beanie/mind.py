@@ -813,6 +813,28 @@ class Mind:
 
         UsefulnessTracker().rate(self.trace, turn_id, score, note)
 
+    def _surface_idle_finding(self, turn_id: str) -> str:
+        """Bring an idle investigation's finding to the owner once (row 20/21).
+
+        Active sensing is not supposed to end in a private note: when the idle
+        budget found candidate evidence for an open question, the next ordinary
+        turn says so and asks whether it is the right thing — the owner still
+        decides (the gap stays open until real evidence arrives, T5).
+        """
+        for question in self.memory.query(kind="self", type="question", status="open"):
+            investigation = question.content.get("investigation") or {}
+            matches = investigation.get("matches") or []
+            if not matches or investigation.get("surfaced_at"):
+                continue
+            investigation["surfaced_at"] = utcnow_iso()
+            question.revise("finding surfaced to the owner", observe=False)
+            self.memory.self_model.save_all()
+            subject = str(question.content.get("subject", ""))[:60]
+            paths = ", ".join(str(m.get("path", "")) for m in matches[:2])
+            self.trace.append(turn_id, "curiosity", {"surfaced_finding": paths, "question_id": question.id})
+            return f"While idle I looked into '{subject}' and found {paths} — is that what you meant?"
+        return ""
+
     def _investigate(self, question: Entry) -> dict[str, Any]:
         """Idle curiosity with content (row 21): search the environment for evidence.
 
@@ -1127,6 +1149,7 @@ class Mind:
 
         self._last_turn_record = episode.id
         self.state.save(self.state_dir / "mind_state.json")
+        surfaced = self._surface_idle_finding(turn_id)
         return Reply(
             text=reply_text,
             confidence=confidence,
@@ -1136,6 +1159,7 @@ class Mind:
             failure=outcome.failure,
             record_id=episode.id,
             reminders=tuple(reminders),
+            questions=(surfaced,) if surfaced else (),
         )
 
     # ======================================================================

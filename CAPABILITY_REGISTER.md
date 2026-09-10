@@ -142,7 +142,7 @@ still gated on the model substrate.
 | 15 | 1 | Incubation queue with evidence-version gating (§4.8 test passing) |
 | 16 | 1 | Contradictions kept as flagged open questions with both sides; owner-vs-owner conflicts keep both entries, superseded flagged |
 | 17 | 0→P | Ontological evolution — a Stage-5 property (threshold-gated schema revision, owner-approved); needs substrate evidence |
-| 18, 19, 20 | 1 | Real-time learning (skills within a session, persisted); curiosity open-question store with loop integration; active sensing wired as questions/asks in correction, ambiguity and authority flows |
+| 18, 19, 20 | 1 | Real-time learning (skills within a session, persisted); curiosity open-question store with loop integration; active sensing wired as questions/asks in correction, ambiguity and authority flows — and an idle investigation's finding is surfaced to the owner on the next ordinary turn ("while idle I looked into … and found … — is that what you meant?"), exactly once, without closing the gap |
 | 21 | 1 (sandbox) | Idle curiosity has content: the budget takes the oldest unexplored open question, searches the environment by the question's own terms, records the search as a perception episode, attaches files searched + candidate evidence to the question, and reports it; a keyword match never closes the gap (real evidence does, T5); with no question pending it inspects an unexplored directory — never loops. Depth beyond the sandbox needs the model tier |
 | 22 | 1 | One-demonstration learning with transfer (T1 test passing); a demonstrated rule runs on new folders, unmapped files untouched |
 | 23 | 1 | Correction → strategy revision (T9 test passing) |

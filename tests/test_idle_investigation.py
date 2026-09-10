@@ -56,3 +56,21 @@ def test_real_evidence_still_resolves_the_question(tmp_path):
     assert mind.memory.query(kind="self", type="question", status="open") == []
     resolved = mind.memory.query(kind="self", type="question", status="resolved")[0]
     assert resolved.content.get("resolved_by")
+
+
+def test_idle_finding_is_surfaced_to_the_owner_once(tmp_path):
+    """Active sensing must reach the owner, not die in a private note (row 20)."""
+    mind = Mind(state_dir=tmp_path / "mind")
+    mind.body.run("mkdir", {"dir": "notes"})
+    mind.body.run("write_file", {"path": "notes/context.txt", "text": "the context lives in the config file"})
+    mind.step("the context is missing here")
+    mind.tick()  # finds candidate evidence
+
+    reply = mind.step("hello there")
+    assert any("notes/context.txt" in question for question in reply.questions)
+    assert "is that what you meant" in " ".join(reply.questions)
+    # surfaced exactly once — the owner is asked, not nagged
+    assert mind.step("hello again").questions == ()
+
+    # and asking does not close the gap: only evidence does (T5)
+    assert mind.memory.query(kind="self", type="question", status="open")
