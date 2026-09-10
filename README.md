@@ -123,7 +123,8 @@ src/beanie/
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
                   the configured model tier, --audit-explanations runs the §9.9
                   faithfulness audit over every recorded decision
-Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
+Makefile          setup/test/demo/suite/verify/repl/status/webui targets (venv auto-recreation);
+                  `make resume`: the session-resume ritual (ls-remote → fetch → reset when strictly behind → battery)
 suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…

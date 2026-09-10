@@ -9,7 +9,7 @@ BIN    := $(VENV)/bin
 PIP    := $(BIN)/pip
 PYTEST := $(BIN)/python -m pytest
 
-.PHONY: setup test demo suite verify repl status webui clean
+.PHONY: setup test demo suite verify repl status webui resume clean
 
 setup:
 	$(PY) -m venv $(VENV)
@@ -35,6 +35,9 @@ verify: setup
 
 repl: setup
 	$(BIN)/python -m beanie.cli --state-dir .beanie_state
+
+resume:
+	@bash scripts/resume.sh
 
 status: setup
 	$(BIN)/python -m beanie.cli --state-dir .beanie_state --status
