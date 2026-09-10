@@ -115,63 +115,57 @@ any code. If it cannot earn a row, it is a conversation, not a requirement.*
 
 ---
 
-## Mechanism scorecard — 2026-09-09 (Stage 0–4 implementation pass)
+## Mechanism scorecard — current (consolidated 2026-09-10)
+
+One row per register entry: the state *today*, not a history of it. Earlier passes
+appended updates and left superseded lines behind; this table replaces them so the
+scorecard cannot contradict itself.
 
 Verdict key: **1** = mechanism implemented (deterministic, tested) · **0** = not yet
-implemented · **P** = property/test: data path implemented, full pass requires real
-substrate or longitudinal history (VISION §5: no row earns 2–3 without evidence).
+implemented · **P** = property/test: data path implemented, full pass requires a real
+model substrate or longitudinal history (VISION §5: no row earns 2–3 without evidence).
+`(sandbox)` marks a mechanism proven in the sandbox domain whose full-domain claim is
+still gated on the model substrate.
 
-| Row(s) | Score | Note |
+| Row(s) | Verdict | Evidence / note |
 |---|---|---|
-| 1–3, 5 | 1 | Working/long-term separation (working context in loop, stores on disk), episodic retrieval (`Mind.recall`), gist distillation via reflection cursor + lessons |
+| 1–3, 5 | 1 | Working context in the loop vs. persistent stores on disk; relevance-aware recall (stored knowledge and episodes about the turn's subjects first, recency fills the window); prospective memory in turn-count, wall-clock and conditional form; routine episodic detail folds into gist entries on the background budget with lessons surviving |
 | 4 | 1 | Decay profiles + sweep + stale flags (T12 test passing) |
 | 6 | 1 | Contamination propagation wired into corrections of remembered facts (T11 test passing) |
-| 7 | 0→P | Retrieval is recency-based; trigger-aware retrieval needs the model tier |
-| 8, 9 | 1 | Planner/executor loop; reflection with lessons (T3 test passing) |
-| 10, 11 | 0 | Property — counterfactual reasoning & object permanence need the model tier |
-| 12 | 1 | Fast-then-deep contract + candidate mismatch logged |
-| 13 | 1 | Effort allocation by stakes — depth routing reflex/deep/deep_verified, fast-tier answers trivial turns alone, flags escalate; tests assert which tier ran (§4.6) |
-| 14 | 1 | Bounded devil's advocate over revision history (concerns recorded per turn) |
+| 7 | 1 | Retrieval is trigger- and relevance-aware, not recency-only (Domain B, tests passing) |
+| 8, 9 | 1 | Planner/executor loop with bounded repairs; reflection with lessons (T3 test passing) |
+| 10 | 1 (sandbox) | `Simulator` replays moves and plans against a virtual tree loaded from the body; "what if I moved X to Y" and goal prediction answer without touching the body — text-domain counterfactual reasoning still needs the model tier |
+| 11 | 1 (sandbox) | Location facts persist for every seen/moved object; "where is X?" answers from the world model, doubtful records trigger a fresh look, observed removals crash the fact honestly, simulations never mutate world facts |
+| 12 | 1 | Fast-then-deep contract with the fast candidate logged before the deep verdict |
+| 13 | 1 | Depth routing reflex/deep/deep_verified by stakes and size; the reflex budget is set by the adaptive effort policy (§4.6) |
+| 14 | 1 | Bounded devil's advocate over revision history; concerns recorded per turn |
 | 15 | 1 | Incubation queue with evidence-version gating (§4.8 test passing) |
-| 16 | 1 | Owner-vs-owner conflicts keep both entries, superseded flagged, ask surfaced |
-| 17 | 0→P | Ontological evolution — property for Stage 5 evidence |
-| 24 | 1 (data path) | Meta-learning data path: a proposal in a family with prior active skills arrives with a boost (0.6 vs 0.5) and records a persistent "meta: <family> tasks learn faster" self-lesson once per family; the full learning-rate property still needs longitudinal evidence |
-| 18, 19, 20 | 1 | Real-time learning (skills within session, persist), curiosity open-question store; active sensing wired as questions/ask in correction & authority flows |
-| 21 | 1 | Budgeted idle exploration: the idle tick takes the oldest unexplored open question and *investigates* it against the sandbox by the question's own terms — the search is recorded as a perception episode, findings are attached to the question (files searched, candidate paths), and a keyword match never closes the gap (real evidence does, T5); with no question pending it inspects an unexplored directory — never loops (§4.2, tests passing; depth beyond the sandbox still needs the model tier) |
-| 22 | 1 | One-demonstration learning with transfer — T1 test passing |
-| 23 | 1 | Correction → strategy revision — T9 test passing |
-| 25, 26 | 1 | Self-initiated triggers via tick/observe; tool chaining in plans |
-| 27 | 1 (text) / 0 | Text tier + perception episodes; vision/audio encoders need the model tier |
-| 28 | 1 (sandbox) | Durations/cause-effect bounded by sandbox; real-world grounding pending body opt-in |
-| 29 | 1 | Four-state authority gate, rules persist with provenance (§5 test passing) |
-| 30 | 1 | Calibrated labels on every reply; calibrator uses evidence state (T8 test passing) |
+| 16 | 1 | Contradictions kept as flagged open questions with both sides; owner-vs-owner conflicts keep both entries, superseded flagged |
+| 17 | 0→P | Ontological evolution — a Stage-5 property (threshold-gated schema revision, owner-approved); needs substrate evidence |
+| 18, 19, 20 | 1 | Real-time learning (skills within a session, persisted); curiosity open-question store with loop integration; active sensing wired as questions/asks in correction, ambiguity and authority flows |
+| 21 | 1 (sandbox) | Idle curiosity has content: the budget takes the oldest unexplored open question, searches the environment by the question's own terms, records the search as a perception episode, attaches files searched + candidate evidence to the question, and reports it; a keyword match never closes the gap (real evidence does, T5); with no question pending it inspects an unexplored directory — never loops. Depth beyond the sandbox needs the model tier |
+| 22 | 1 | One-demonstration learning with transfer (T1 test passing); a demonstrated rule runs on new folders, unmapped files untouched |
+| 23 | 1 | Correction → strategy revision (T9 test passing) |
+| 24 | 1 (data path) | A proposal in a familiar family arrives boosted (0.5 → 0.6) with one persistent per-family meta-lesson; the learning-rate *property* needs longitudinal evidence |
+| 25, 26 | 1 | Self-initiated triggers via tick/observe; tool chaining in plans (sense → act → verify) |
+| 27 | 1 (text) / 0 | Text tier + perception episodes; vision/audio encoders are model-gated |
+| 28 | 1 (sandbox) | Durations and cause/effect bounded by the sandbox; consequence checks via simulation + authority gate; real-world grounding awaits body opt-in |
+| 29 | 1 | Four-state authority gate; granted rules accumulate with provenance; a denied capability blocks a learned plan with its phrase (§5 test passing) |
+| 30 | 1 | Calibrated labels on every reply from the evidence state (T8 test passing) |
 | 31 | 1 | Correction channel with strategy revision (T9) |
 | 32 | 1 | Explanation service, auditable, plain language, on demand (T10 test passing) |
-| 33 | 0→P | Owner belief layer is schema-ready; ToM behaviors need the model tier |
-| 34, 36 | P | Teaching, identity fluidity: data path (identity summaries) exists; evidence pending |
-| 35 | 1 | Self-model store: lessons, summary, open problems, cursor; introspection directives answer from the stores ("what are you unsure about?" → open questions, "what have you learned?" → lessons, "what can you do?" → body + skills, "about yourself" → T7 summary with on-record calibration) |
-| 37 | 1 | Usefulness tracker: the owner can rate an answer in plain language ("that was useful", "that wasn't helpful"); the verdict is attributed to the judged turn, bucketed per confidence label, printed by the suite, and consumed by the effort-policy audit (a poorly rated reflex answer counts as a failure even though it cannot fail by construction) — tests passing |
-| 38–41 | 1 | Failure taxonomy tags, consistency + contradiction counters in trace; the longitudinal suite now carries 22 multi-turn tasks (§8 target 20–30) with real action turns (observe/tick/demo/perform/body/query), environment staging, and honesty assertions (`expect_absent`, `expect_same_as`) |
-| 42 (T4) | 1 | Explicit preferences learned (corroborated, superseded-not-deleted); implicit proposals from repeated corrections require owner confirmation — tests passing |
-| 19 (T5) | 1 | Curiosity now fires in the loop: unresolved requests and unknown goals record open questions (deduplicated); open questions feed calibration (T8) and incubation |
-| 7 (retrieval) | 1 | Relevance-aware recall: context for a turn is built from stored knowledge and episodes about the same subjects first, recency fills the window (Domain B, tests passing) |
-| 10 (counterfactual) | 1 (sandbox domain) | `Simulator` replays moves/plans against a virtual tree loaded from the body; `predict_goal` and "what if I moved X to Y" answer without touching the body; text-domain counterfactual reasoning still needs the model tier |
-| 33 (ToM) | 1 (belief layer) | Owner belief statements stored separately from facts; conflicts surfaced gently without overwriting facts; full belief-model-driven explanation adaptation still needs the model tier |
-| 11 (permanence) | 1 (sandbox world) | Location facts persist in the semantic store for every seen/moved object; "where is X?" answers from the world model without re-scanning; doubtful records trigger a fresh look (T12); observed removals crash the fact honestly; simulations never mutate world facts — tests passing |
-| 21 (content) | 1 (sandbox content) | Idle investigation has real content: environment search driven by an open question's terms, perception episode + candidate evidence recorded, honest "no evidence" outcome when the sandbox has nothing — and the CLI `tick [N]` shows the owner what the budget did; deeper self-chosen investigation still needs the model tier |
-| 34 (teaching) | 1 | "how do you organize X" explains the confirmed rule in plain terms, naming its origin (your demonstration, confirmed by you) — tests passing |
-| 40 (consistency) | 1 | Consistency probe test: identical input → identical reply text + label on the deterministic substrate |
-| T7 (identity) | 1 (data probe) | Executable probe: two histories → measurably different identity summaries traceable to corrections/skills vs preferences, same code, same prompts |
-| 3 (gisting) | 1 | Routine episodic detail folds into gist entries on the background budget (Reflector.gist in tick; keep_recent window + threshold); lessons survive, trivia decays — tests passing |
-| 5 (conditional) | 1 | Conditional prospective memory: "remind me when X appears in Y" fires when observation events match; checked on every observe() pass — tests passing |
-| T5 (loop closure) | 1 | Open questions resolve when evidence arrives: facts stored or skills confirmed close matching gaps with evidence refs (never linger forever) — tests passing |
-| T8 (measurement) | 1 | calibration_report(): per-label accuracy over trace outcomes; suite prints the aggregated calibration table each run (labels vs outcomes) — tests passing |
-| 35 (introspection) | 1 | Introspection answers trace to live store entries: open questions, distilled lessons, body capabilities + active skills, T7 identity summary with a "right X of the last N" calibration line from the trace — never canned text; "what can you do?" lists learned skills with their origin — tests passing |
-| Q13 (honest fallback) | 1 | A successful answer the evidence does not back (calibrated confidence < 0.55 on a corrected/uncertain subject) carries an explicit "not fully confident" caveat and opens a recorded residual gap instead of standing as a confident answer — tests passing |
-| T13 (effort loop) | 1 | The effort policy now adapts: each tick audits reflex-class outcomes — enough failed reflex turns tighten the reflex word budget (floor 3), clean stretches widen it (cap 10); adjustments persist as a self-model entry with a human-readable reason and a trace event (policy survives restart) — tests passing |
-| Q15 / R2.15 (transfer) | 1 | export_knowledge() ships confirmed skills + facts + preferences as plain bundles (episodes never travel); import_knowledge() on a fresh mind marks them learned_via=transfer at honest confidence and the mind then *performs* the taught goal — know-how transfers without shared memory — tests passing |
-| 39 (longitudinal suite) | 1 | The §8 protocol suite is populated: 22 multi-turn tasks spanning dialogue, demonstration/transfer, world model, prospective memory, introspection, authority and policy loops; each turn runs a real loop path (conversation, perception, background tick, demonstration, goal execution, body/store checks) — a guard test fails the build if the suite drops below 20 tasks or a task stops passing |
-| 40 (consistency) | 1 | Consistency probe in the suite: the same question asked twice must surface byte-identical text (`expect_same_as`) — a fresh invention on the second ask fails the task |
-| Q31 (tracked number) | 1 | Every tracked run is archived with a timestamp; the runner prints the delta versus the previous run *and* the trailing-30-day window report (runs in window, fully-passing runs, per-task pass rate and passed-turn delta ▲/▼/—, aggregated T8 calibration, T13 usefulness) — movement over the window, not any single run, is the number |
-| T13 (usefulness channel) | 1 | Owner ratings arrive in natural language ("that was useful" / "that wasn't helpful" / "nice work"), are conservative about intent (a task continuation starting with "great" is not a rating), attach to the turn actually judged (never invented), and feed the effort policy: low-rated reflex-class answers count as failures in the depth-routing audit — tests passing |
-| §8 (implicit signals) | 1 | The protocol's implicit side is recorded too: content-word overlap with the previous owner turn logs a *follow-up* (engagement); walking away from a turn it left unresolved (open question / failed outcome) logs *abandonment* — abandonment counts against reflex-class answers in the policy audit, and the suite prints both counts — tests passing |
+| 33 | 1 (belief layer) / P | Owner belief statements stored apart from facts; conflicts surfaced without overwriting; explanations cite the owner's model. Full belief-model-driven explanation adaptation needs the model tier |
+| 34 | 1 (sandbox) / P | "how do you organize X?" explains the confirmed rule in plain terms and names its origin; the general teaching property needs substrate evidence |
+| 35 | 1 | Self-model introspection: "what are you unsure about?" / "what have you learned?" / "what can you do?" / "tell me about yourself" answer from open questions, lessons, body capabilities + learned skills, and the T7 identity summary with an on-record calibration line — never canned text |
+| 36 | P | Identity fluidity: the T7 consolidation data path exists and an executable probe differences two histories; long-history evidence pending |
+| 37 | 1 | Usefulness metric, explicit and implicit: natural-language ratings attach to the judged turn and bucket per label; follow-up/abandonment signals are recorded; low-rated or abandoned reflex-class answers count as failures in the effort-policy audit |
+| 38–41 | 1 | Failure taxonomy tags on every failure; consistency + contradiction counters in the trace; consistency probe in the suite (identical input → identical text) |
+| 42 | 1 | Explicit preferences learned (corroborated, superseded-not-deleted); implicit proposals from repeated corrections require owner confirmation |
+| T5 | 1 | Open questions close when evidence arrives — stored facts and confirmed skills resolve matching gaps with evidence refs; idle investigation records candidates without closing on a keyword match |
+| T7 | 1 (data probe) | Two histories produce measurably different identity summaries traceable to corrections/skills vs. preferences, same code, same prompts |
+| T8 | 1 | `calibration_report()` per-label accuracy over trace outcomes, printed by every suite run; labels beat the unlabeled baseline |
+| T13 | 1 | EffortPolicy adapts the reflex budget on failures, low ratings and abandonment, persists changes with reasons, and survives restarts |
+| Q13 | 1 | A successful answer the evidence does not back (<0.55 calibrated) carries an explicit caveat and opens a recorded residual gap |
+| Q15 / R2.15 | 1 | `export_knowledge()` / `import_knowledge()` transfer confirmed skills, facts and preferences between minds without sharing episodes; the receiving mind performs the taught goal |
+| Q31 / §8 | 1 | Longitudinal suite of 22 multi-turn tasks (protocol target 20–30) with real action turns and honesty assertions; every run archived; the runner prints the delta vs. the previous run and the trailing-30-day window report (pass rate, per-task turn delta, calibration, usefulness signals) |
+| §8 signals | 1 | Explicit rating, correction, follow-up and abandonment all recorded per turn; the suite prints ratings by label and implicit signal counts |
