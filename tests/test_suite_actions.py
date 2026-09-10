@@ -132,3 +132,54 @@ def test_bundled_suite_passes_end_to_end(tmp_path):
     from pathlib import Path
 
     assert run_suite(Path("suites"), tmp_path / "state") == 0
+
+
+def test_scorecard_snapshot_parses_the_real_register(tmp_path):
+    """§8: register movement is half the tracked number — so it must be readable."""
+    from pathlib import Path
+
+    from beanie.measure import scorecard_snapshot
+
+    snapshot = scorecard_snapshot(Path("CAPABILITY_REGISTER.md"))
+    assert snapshot["35"] == "1"          # introspection, implemented
+    assert snapshot["17"] == "0→P"        # Stage-5 property, honestly gated
+    assert snapshot["5"] == "1"           # range "1–3, 5" expands to its parts
+    assert snapshot["Q31 / §8"] == "1"
+    assert len(snapshot) >= 30
+
+
+def test_register_movement_is_tracked_between_runs(tmp_path):
+    """The other half of Q31: scorecard movement over the window is reported."""
+    import json
+
+    from beanie.measure import register_movement, window_report
+
+    suite_dir = tmp_path / "suite"
+    suite_dir.mkdir()
+    (suite_dir / "one.json").write_text(json.dumps({
+        "id": "one", "description": "", "turns": [{"user": "hello", "expect": "received"}],
+    }), encoding="utf-8")
+    register = tmp_path / "CAPABILITY_REGISTER.md"
+    register.write_text(
+        "## Mechanism scorecard\n\n| Row(s) | Verdict | Evidence |\n|---|---|---|\n"
+        "| 17 | 0→P | Stage-5 property |\n| 35 | 1 | introspection |\n",
+        encoding="utf-8",
+    )
+    track = tmp_path / "track"
+    assert run_suite(suite_dir, tmp_path / "s1", track_dir=track, register_path=register) == 0
+
+    register.write_text(
+        "## Mechanism scorecard\n\n| Row(s) | Verdict | Evidence |\n|---|---|---|\n"
+        "| 17 | 1 (data path) | proposal path landed |\n| 35 | 1 | introspection |\n",
+        encoding="utf-8",
+    )
+    assert run_suite(suite_dir, tmp_path / "s2", track_dir=track, register_path=register) == 0
+
+    sidecars = sorted(track.glob("*.register.json"))
+    assert len(sidecars) == 2  # one snapshot per run
+    first = json.loads(sidecars[0].read_text(encoding="utf-8"))
+    second = json.loads(sidecars[1].read_text(encoding="utf-8"))
+    assert register_movement(first, second) == [{"row": "17", "from": "0→P", "to": "1 (data path)"}]
+
+    report = window_report(track, days=30)
+    assert report["register_movement"] == [{"row": "17", "from": "0→P", "to": "1 (data path)"}]

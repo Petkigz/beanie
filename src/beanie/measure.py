@@ -286,6 +286,51 @@ def run_scenario(scenario: Scenario, state_dir: Path) -> ScenarioResult:
     return result
 
 
+def scorecard_snapshot(register_path: Path) -> dict[str, str]:
+    """Read the mechanism scorecard into `{row: verdict}` (ARCHITECTURE §8).
+
+    §8 fixes the tracked number as suite score *and* register movement over
+    the trailing window, so the register has to be machine-readable. The
+    consolidated scorecard table is: first column = register row(s) (numbers,
+    ranges, or T/Q ids), second = verdict for the current state.
+    """
+    if not register_path.exists():
+        return {}
+    text = register_path.read_text(encoding="utf-8")
+    _, _, scorecard = text.partition("## Mechanism scorecard")
+    snapshot: dict[str, str] = {}
+    for line in scorecard.splitlines():
+        if not line.startswith("| "):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 2 or cells[0].startswith("Row") or set(cells[0]) <= {"-", " "}:
+            continue
+        for part in cells[0].split(","):
+            key = part.strip().lstrip("#")
+            if key:
+                snapshot[key] = cells[1]
+    return snapshot
+
+
+def register_movement(previous: dict[str, str], current: dict[str, str]) -> list[dict[str, str]]:
+    """Rows whose verdict changed between two scorecard snapshots."""
+    moved: list[dict[str, str]] = []
+    for row, verdict in current.items():
+        before = previous.get(row)
+        if before is not None and before != verdict:
+            moved.append({"row": row, "from": before, "to": verdict})
+    return moved
+
+
+def _print_register_movement(movement: list[dict[str, str]]) -> None:
+    if not movement:
+        print("  register movement: none — no scorecard row changed")
+        return
+    print(f"  register movement: {len(movement)} row(s) changed")
+    for change in movement:
+        print(f"    row {change['row']}: {change['from']} → {change['to']}")
+
+
 def _parse_run_id(stem: str) -> "_dt.datetime | None":
     """Archived run ids are `%Y%m%d_%H%M%S_%f` timestamps."""
     try:
@@ -306,7 +351,16 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     negative delta here.
     """
     runs: list[tuple[_dt.datetime, list[dict]]] = []
+    registers: list[tuple[_dt.datetime, dict[str, str]]] = []
     for path in sorted(track_dir.glob("*.json")):
+        if path.name.endswith(".register.json"):
+            stamp = _parse_run_id(path.name[: -len(".register.json")])
+            if stamp is not None:
+                try:
+                    registers.append((stamp, json.loads(path.read_text(encoding="utf-8"))))
+                except (json.JSONDecodeError, OSError):
+                    pass
+            continue
         stamp = _parse_run_id(path.stem)
         if stamp is None:
             continue
@@ -342,6 +396,9 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
         runs_fully_passed += 1 if all_passed else 0
     for label, stats in calibration.items():
         stats["accuracy"] = round((stats["n"] - stats["failures"]) / stats["n"], 3) if stats["n"] else None
+    window_start = window[0][0] if window else None
+    register_window = [(stamp, snap) for stamp, snap in registers if window_start is not None and stamp >= window_start]
+    movement = register_movement(register_window[0][1], register_window[-1][1]) if len(register_window) >= 2 else []
     return {
         "runs": len(window),
         "runs_archived": len(runs),
@@ -352,6 +409,7 @@ def window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
         "pass_rate": round(runs_fully_passed / len(window), 3) if window else None,
         "per_scenario": per_scenario,
         "calibration": calibration,
+        "register_movement": movement,
     }
 
 
@@ -370,6 +428,8 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
         arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "—")
         print(f"  {scenario_id}: pass {entry['passed_runs']}/{entry['runs']} runs · "
               f"passed turns {entry['first_passed_turns']} → {entry['last_passed_turns']} {arrow}")
+    print("  register movement in window:")
+    _print_register_movement(report.get("register_movement", []))
     if report["calibration"]:
         print("  calibration in window:")
         for label, stats in sorted(report["calibration"].items(), key=lambda kv: -kv[1]["n"]):
@@ -377,12 +437,15 @@ def print_window_report(track_dir: Path, days: int = 30) -> dict[str, Any]:
     return report
 
 
-def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, track_dir: Path | None = None) -> int:
+def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, track_dir: Path | None = None,
+              register_path: Path | None = None) -> int:
     """Run every scenario file in `suite_dir`; returns number of failed scenarios.
 
     With `track_dir`, the run's results are archived under a timestamped file
-    and the *delta* against the previous run is printed — the tracked number
-    of the measurement protocol (Q31 / ARCHITECTURE §8).
+    and the *delta* against the previous run is printed — suite score movement
+    being half of the tracked number (Q31 / ARCHITECTURE §8). With
+    `register_path`, the scorecard is snapshotted beside the run so the other
+    half — capability-register movement — is tracked too.
     """
     paths = sorted(p for p in suite_dir.glob("*.json") if p.is_file())
     if not paths:
@@ -438,6 +501,9 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
         track_dir.mkdir(parents=True, exist_ok=True)
         run_id = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         (track_dir / f"{run_id}.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        snapshot = scorecard_snapshot(register_path) if register_path is not None else {}
+        if snapshot:
+            (track_dir / f"{run_id}.register.json").write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
         previous = sorted(track_dir.glob("*.json"))
         if len(previous) >= 2:  # newest is this run
             with previous[-2].open(encoding="utf-8") as fh:
@@ -451,6 +517,12 @@ def run_suite(suite_dir: Path, state_dir: Path, out_path: Path | None = None, tr
                 shift = row["passed_turns"] - prev["passed_turns"]
                 arrow = "▲" if shift > 0 else ("▼" if shift < 0 else "—")
                 print(f"  {row['scenario_id']}: {prev['passed_turns']} → {row['passed_turns']} passed turns {arrow}")
+            if snapshot:
+                previous_registers = sorted(track_dir.glob("*.register.json"))
+                if len(previous_registers) >= 2:
+                    with previous_registers[-2].open(encoding="utf-8") as fh:
+                        previous_snapshot = json.load(fh)
+                    _print_register_movement(register_movement(previous_snapshot, snapshot))
         # the protocol's tracked number is the trailing-window delta (Q31)
         print_window_report(track_dir)
     return 1 if failed else 0
@@ -465,11 +537,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     suite_dir = Path(args.suite_dir)
     state_dir = Path(args.state_dir) if args.state_dir else Path(tempfile.mkdtemp(prefix="beanie-suite-"))
+    register_path = Path("CAPABILITY_REGISTER.md")
     return run_suite(
         suite_dir,
         state_dir,
         Path(args.out) if args.out else None,
         Path(args.track_dir) if args.track_dir else None,
+        register_path if register_path.exists() else None,
     )
 
 

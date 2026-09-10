@@ -57,7 +57,8 @@ src/beanie/
   substrate.py    fast/deep tier interface + deterministic test double (§2)
   substrate_http.py  optional OpenAI-compatible real model tier (§2)
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 22 tasks, action turns, trailing-30-day window report (Q31), T8 calibration + T13 usefulness/§8 signal tables
+  measure.py      longitudinal suite runner: 22 tasks, action turns, register snapshots,
+                  trailing-30-day window report with suite + scorecard movement (Q31)
   cli.py          REPL window into the mind; `tick [N]` / --tick runs the idle budget
 Makefile          setup/test/demo/suite/repl targets (venv auto-recreation)
 suites/           22 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
@@ -71,7 +72,8 @@ tests/            108 tests incl. the conformance drift guard + T-test battery
 make setup test      # recreate .venv if needed, then run all tests
 make demo            # end-to-end demo: teaching→transfer, introspection, Q13 caveat,
                      # usefulness ratings, idle investigation, policy adaptation, Q15 transfer
-make suite           # longitudinal suite; archives each run under results/ and prints the delta vs the previous run (Q31)
+make suite           # longitudinal suite; archives each run + scorecard snapshot under results/
+                     # and prints suite delta, register movement and the trailing-30-day window (Q31)
 make repl            # talk to a mind that persists in .beanie_state/
 # manual equivalents:
 python3 -m venv .venv && .venv/bin/pip install pytest -e .
