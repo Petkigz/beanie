@@ -27,8 +27,9 @@ import re
 from dataclasses import dataclass, field
 from html import unescape
 from typing import Callable, Optional
+from urllib.parse import parse_qs, quote_plus, urlparse
 
-from .streaming import ResultsFetcher, youtube_top_result
+from .streaming import ResultsFetcher, default_fetcher, youtube_top_result
 
 # --------------------------------------------------------------- primitives
 
@@ -196,8 +197,6 @@ class Researcher:
     """Find → read → extract; the tier verifies. Offline-injectable (§9)."""
 
     def __init__(self, fetch: Optional[ResultsFetcher] = None) -> None:
-        from .streaming import default_fetcher
-
         self.fetch = fetch or default_fetcher
 
     def research_video(self, topic: str) -> Optional[ResearchPacket]:
@@ -230,3 +229,62 @@ class Researcher:
             packet.no_captions = True
             packet.transcript = None
         return packet
+
+# ------------------------------------------------------------------ the web
+
+_DDG_LITE = "https://lite.duckduckgo.com/lite/?q={query}"
+_RESULT_ANCHOR_RE = re.compile(
+    r'<a[^>]+href="(?P<href>//duckduckgo\.com/l/\?[^"]*?uddg=[^"]+)"[^>]*>(?P<title>.*?)</a>',
+    re.DOTALL,
+)
+_SNIPPET_CELL = "class='result-snippet'>"
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+@dataclass
+class WebResult:
+    """One honest web hit: a title, the resolved URL, and the snippet text."""
+    title: str
+    url: str
+    snippet: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"title": self.title, "url": self.url, "snippet": self.snippet}
+
+
+def _resolve_redirect(href: str) -> str:
+    """DuckDuckGo encodes the destination in uddg= — decode, never trust the wrapper."""
+    query = parse_qs(urlparse("https:" + href if href.startswith("//") else href).query)
+    target = query.get("uddg", [""])[0]
+    return target or href
+
+
+def web_search(query: str, *, fetch: Optional[ResultsFetcher] = None, limit: int = 4) -> list[WebResult]:
+    """Live web results for a question, via DuckDuckGo's lite HTML endpoint.
+
+    Text-only by design: titles and snippets are text the mind can honestly
+    read; page-level understanding is the tier's job, and pixels are nobody's
+    yet. Network failure is a clean empty list — the caller says "couldn't
+    reach", never "the web says".
+    """
+    fetch = fetch or default_fetcher
+    try:
+        page = fetch(_DDG_LITE.format(query=quote_plus(query)))
+    except Exception:
+        return []
+    results: list[WebResult] = []
+    for match in _RESULT_ANCHOR_RE.finditer(page):
+        title = _TAG_RE.sub("", match.group("title"))
+        title = re.sub(r"\s+", " ", unescape(title)).strip()
+        url = unescape(_resolve_redirect(match.group("href")))
+        snippet = ""
+        snippet_at = page.find(_SNIPPET_CELL, match.end())
+        if snippet_at >= 0:
+            end = page.find("</td>", snippet_at)
+            snippet = re.sub(r"\s+", " ", unescape(
+                _TAG_RE.sub("", page[snippet_at + len(_SNIPPET_CELL): end if end > 0 else len(page)]))).strip()
+        if title and url.startswith(("http://", "https://")):
+            results.append(WebResult(title=title, url=url, snippet=snippet))
+        if len(results) >= limit:
+            break
+    return results

@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -42,7 +43,7 @@ from .policy import EffortPolicy
 from .preferences import PreferenceMiner
 from .records import Entry, EvidenceRef, RecordKind, Source, confidence_label, utcnow_iso
 from .reflection import ConsolidationAdapter, NoopConsolidationAdapter, Reflector, StubReflector
-from .research import Researcher
+from .research import Researcher, web_search
 from .searchindex import FileIndex
 from .state import MindState
 from .streaming import google_search_url, youtube_search_url, youtube_top_result
@@ -101,6 +102,15 @@ _RATING_POSITIVE = ("useful", "helpful", "great", "perfect", "excellent",
 _RATING_NEGATIVE = ("useless", "unhelpful", "not useful", "not helpful",
                     "wasn't useful", "wasn't helpful", "isn't useful", "isn't helpful",
                     "wrong", "not right", "didn't help", "did not help")
+
+#: media follow-ups: walk the ranked trail from the last media ask (§11.2)
+_MEDIA_FOLLOW_RE = re.compile(
+    r"^\s*(?:no|nah|nope)?\s*[,!.]?\s*(?:"
+    r"the\s+other\s+one|another\s+one|not\s+that\s+one|the\s+next\s+one|a\s+different\s+one|"
+    r"try\s+(?:the\s+|another\s+)?(?:next|other)(?:\s+one)?|"
+    r"next|another|different\s+one)\s*\.?\s*$",
+    re.IGNORECASE,
+)
 
 
 _SIGNAL_STOPWORDS = frozenset({
@@ -244,6 +254,10 @@ class Mind:
         self._osbody: Optional[OSBody] = None
         self._osbody_probed = False
         self.youtube_fetcher = None  # injectable ResultsFetcher (tests never touch a network)
+        self.web_fetcher = None      # injectable web ResultsFetcher (tests never touch a network)
+        # the media trail (§11.2): last ranked matches + how far the owner has walked
+        self._media_trail: Optional[tuple[list[Any], int]] = None
+        self._media_trail_target = ""
 
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
@@ -411,6 +425,13 @@ class Mind:
         if _EXPLAIN_RE.match(text):
             self._organ_hint = "the explanation service (§4.5) — this reply is itself an explanation"
             return self._explain_last(turn_id, text)
+
+        # 11b) media follow-ups: "no, the other one" walks the trail (§11.2) —
+        # it IS a correction, but one with a walkable answer: before the
+        # general correction channel, and only while a trail exists to walk
+        if _MEDIA_FOLLOW_RE.match(text) and self._media_trail is not None:
+            self._organ_hint = "the media trail (§11.2) — the owner chose the next ranked match"
+            return self._media_follow(turn_id)
 
         # 12) corrections — the continuous "no, that's wrong" channel (§4.4)
         correction = _CORRECTION_RE.match(text)
@@ -943,6 +964,13 @@ class Mind:
             question = self._note_permission_need(goal, result)
             if question:
                 result.permission_question = question
+        if result.outcome == "failed":
+            # §4.8: a failed plan is incubated, not dropped — the tick budget
+            # revisits it when evidence has moved (audit continuation note)
+            self.incubator.park(goal[:80], {
+                "failure": result.failure_taxonomy, "base_dir": base_dir,
+                "parked_from": "perform_goal", "skill_id": result.skill_id,
+            })
         if result.outcome == "failed" or result.outcome == "needs_information":
             self._log_learning_episode(
                 user_text=goal,
@@ -1456,27 +1484,17 @@ class Mind:
         target = need.target.strip()
         index = self._file_index()
         index.build()
-        matches = index.search(target, limit=3)
+        matches = index.search(target, limit=5)
         body = self._os_body()
         if matches:
             top = matches[0]
-            name = Path(top.path).name
-            if body is None:
-                reply_text = (f"I found '{name}' at {top.path} ({top.why}). My OS body is opt-in and "
-                              f"off — set BEANIE_BODY_OS=1 and I can play it in your default player.")
-                confidence = 0.9
-            else:
-                verdict, question = self._capability_permission(turn_id, "play_media", target)
-                if verdict == "act":
-                    body.run("play_media", {"path": top.path})
-                    reply_text = (f"Playing '{name}' in your default player — the closest match on "
-                                  f"this machine ({top.why}). If that's not the one, tell me and I'll try the next.")
-                elif verdict == "deny":
-                    reply_text = question + f" I had '{name}' ready at {top.path}."
-                else:
-                    reply_text = f"I found '{name}' at {top.path}. {question}"
-                confidence = 0.9
+            self._media_trail = (matches, 0)
+            self._media_trail_target = target
+            reply_text = self._media_serve_text(turn_id, target, top, 1, len(matches))
+            confidence = 0.9
         else:
+            self._media_trail = None
+            self._media_trail_target = ""
             url, specific = youtube_top_result(target, fetch=self.youtube_fetcher)
             what = "the top result" if specific else "the search results"
             if body is None:
@@ -1502,6 +1520,55 @@ class Mind:
             turn_id, reply_text, confidence, True, None,
             extra={"user_text": text, "directive": "play_media", "decision": need.to_dict(),
                    "matched": matches[0].path if matches else None, "reply": reply_text})
+        return Reply(text=reply_text, confidence=confidence,
+                     confidence_label=confidence_label(confidence), turn_id=turn_id,
+                     success=True, record_id=episode.id)
+
+    def _media_serve_text(self, turn_id: str, target: str, match: Any,
+                          position: int, total: int) -> str:
+        """One ranked match presented honestly — with its position in the trail (§11.2)."""
+        body = self._os_body()
+        name = Path(match.path).name
+        where = f" ({position} of {total})" if total > 1 else ""
+        if body is None:
+            return (f"I found '{name}' at {match.path} ({match.why}){where}. My OS body is opt-in and "
+                    f"off — set BEANIE_BODY_OS=1 and I can play it in your default player.")
+        verdict, question = self._capability_permission(turn_id, "play_media", target)
+        if verdict == "act":
+            body.run("play_media", {"path": match.path})
+            return (f"Playing '{name}' in your default player{where} — closest match on this machine "
+                    f"({match.why}). If that's not the one, tell me and I'll try the next.")
+        if verdict == "deny":
+            return question + f" I had '{name}' ready at {match.path}."
+        return f"I found '{name}' at {match.path}{where}. {question}"
+
+    def _media_follow(self, turn_id: str) -> Reply:
+        """'No, the other one' (§11.2): walk the last ranked trail, one step at a
+        time, and say so when the trail is exhausted — silence-wrapping to the
+        first match again would be a lie."""
+        assert self._media_trail is not None
+        matches, served = self._media_trail
+        target = self._media_trail_target
+        nxt = served + 1
+        if nxt >= len(matches):
+            url = youtube_search_url(target)
+            last_name = Path(matches[-1].path).name
+            reply_text = (f"'{last_name}' was the last local match ({len(matches)} of {len(matches)}) "
+                          f"— no untouched alternatives remain on this machine for '{target}'. "
+                          f"Your outside door stays open: {url}")
+            confidence = 0.75
+        else:
+            self._media_trail = (matches, nxt)
+            reply_text = ("Next match, then: "
+                          + self._media_serve_text(turn_id, target, matches[nxt], nxt + 1, len(matches)))
+            confidence = 0.9
+        self.trace.append(turn_id, "media", {"followed": True, "target": target,
+                                             "served_index": self._media_trail[1],
+                                             "total": len(matches)})
+        episode = self._record_episode(
+            turn_id, reply_text, confidence, True, None,
+            extra={"user_text": "media follow-up", "directive": "media_follow",
+                   "trail_position": self._media_trail[1] + 1, "trail_total": len(matches)})
         return Reply(text=reply_text, confidence=confidence,
                      confidence_label=confidence_label(confidence), turn_id=turn_id,
                      success=True, record_id=episode.id)
@@ -1560,6 +1627,7 @@ class Mind:
         target = need.target.strip()
         is_url = need.reason == "an explicit site to open"
         url = target if is_url else google_search_url(target)
+        episode_extra: dict[str, Any] = {}
         body = self._os_body()
         if body is None:
             reply_text = (f"Understood: {url}. My OS body is opt-in and off — open it yourself, "
@@ -1577,15 +1645,50 @@ class Mind:
             confidence = 0.9
         if need.needs_learning:
             self.curiosity.open_question(target[:60], "declared research need from a web request")
-            reply_text += (" And I logged it as something to learn — when my web-reading tier is "
-                           "wired I'll study what comes back, not just open tabs.")
-        self.trace.append(turn_id, "body", {"op": "open_url", "url": url, "decision": need.to_dict()})
+            research_note = self._web_research(turn_id, target, episode_extra)
+            if research_note:
+                reply_text = research_note + "\n\n" + reply_text
+        self.trace.append(turn_id, "body", {"op": "open_url", "url": url, "decision": need.to_dict(),
+                                            "web_results": [r.get("url") for r in episode_extra.get("web_results", [])]})
+        extra: dict[str, Any] = {"user_text": text, "directive": "web", "decision": need.to_dict(), "url": url}
+        extra.update(episode_extra)
         episode = self._record_episode(
-            turn_id, reply_text, confidence, True, None,
-            extra={"user_text": text, "directive": "web", "decision": need.to_dict(), "url": url})
+            turn_id, reply_text, confidence, True, None, extra=extra)
         return Reply(text=reply_text, confidence=confidence,
                      confidence_label=confidence_label(confidence), turn_id=turn_id,
                      success=True, record_id=episode.id)
+
+    def _web_research(self, turn_id: str, target: str, extra: dict[str, Any]) -> str:
+        """The web actually answers (rows 46/51): fetch live results, and with a
+        live tier weigh them — always labelled as a dated live lookup, kept
+        strictly apart from memory. Network failure is reported as failure."""
+        results = web_search(target, fetch=self.web_fetcher)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.trace.append(turn_id, "web_research",
+                          {"target": target, "result_count": len(results),
+                           "urls": [r.url for r in results]})
+        extra["web_results"] = [r.to_dict() for r in results]
+        if not results:
+            return (f"I couldn't reach the web for a usable answer (DuckDuckGo, {today}) — the "
+                    f"network is down, blocked, or empty on this one. I'm reporting that plainly; "
+                    f"the manual route is below.")
+        numbered = "\n".join(f"  {i+1}. {r.title} — {r.url}\n     {r.snippet}"
+                             for i, r in enumerate(results[:4]))
+        if self.substrate.name != "stub":
+            outcome = self.substrate.deep(
+                {"user_text": (
+                    f"These are LIVE web results fetched today ({today}) for the question: {target}\n"
+                    f"{numbered}\n"
+                    "Answer in at most 60 words what the web says, then a line 'BEST:' naming the "
+                    "source to open first (write 'IRRELEVANT:' instead if the results miss the question)."
+                )}, [], candidate="web-verify",
+            )
+            if outcome.success and outcome.text.strip():
+                return (outcome.text.strip()[:520]
+                        + f"\n\n— a live lookup from DuckDuckGo ({today}), kept apart from my memory; "
+                        "a lookup replaces a stale guess, it does not become memory itself.")
+        return (f"Live lookup results (DuckDuckGo, {today}) — top {min(4, len(results))}, raw below; "
+                f"I can't weigh them yet without the model tier wired:\n{numbered}")
 
     def _execute_system_need(self, turn_id: str, text: str, need: Need) -> Reply:
         """System-changing needs: command preview first, authority always (§5, §11.4)."""

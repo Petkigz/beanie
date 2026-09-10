@@ -71,9 +71,9 @@ Deliberately *not* pruned (an audit argues; it does not delete):
   the loop or tests. Verified: with the stub tier it degrades honestly
   ("nothing invented"), exactly as documented.
 - `OSBody` — opt-in real body behind `BEANIE_BODY_OS=1`; untouched by all tests by design.
-- `Incubator.park()` — exercised by tests; the loop revisits parked problems in `tick()`
-  but never *auto-parks* failed plans itself (parking is currently owner/test-driven).
-  Auto-parking from `perform_goal` failures is candidate continuation work, not a bug.
+- `Incubator.park()` — now also fed automatically: a `failed` outcome in `perform_goal`
+  parks the goal (with its failure taxonomy + base_dir) so the tick budget revisits it
+  when evidence has moved (§4.8; closes the audit's own continuation note).
 - `Mind.predict_goal` — public counterfactual API; covered by tests but not reachable
   from the CLI/suite surface.
 

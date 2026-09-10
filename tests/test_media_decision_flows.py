@@ -127,9 +127,12 @@ def test_open_and_web_without_body_are_plain_honest_reports(tmp_path, pc):
     assert "nothing was launched" in reply.text
     reply = mind.step("go to youtube.com")
     assert "youtube.com" in reply.text and "BEANIE_BODY_OS=1" in reply.text
+    # live web research attempted; network down in this sandbox is reported
+    # honestly as a failed lookup, with the manual route and the logged gap
+    mind.web_fetcher = lambda url: (_ for _ in ()).throw(ValueError("offline sandbox"))
     reply = mind.step("google how the nether portal works")
     assert "google.com/search" in reply.text
-    assert "open question" in reply.text.lower() or "learn" in reply.text.lower()
+    assert "couldn't reach the web" in reply.text.lower()
     assert mind.memory.query(kind="self", type="question", status="open")
 
 
