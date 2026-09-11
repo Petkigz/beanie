@@ -82,20 +82,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.say is not None:
         reply = mind.step(args.say)
         _print_reply(reply, show_label=args.label)
+        if args.speak:
+            voice = _seated_voice(args)
+            if voice is not None:
+                _speak_reply(voice, reply.text)
         return 0
 
     print("Beanie — artificial mind skeleton. Type 'exit' or Ctrl-D to leave; 'tick [N]' runs the "
           "background budget. (State persists in this state dir.)")
     try:
-        voice = None
-        if args.speak:
-            from .voice import Voice
-
-            voice = Voice()
-            if not voice.enabled or voice.speaker() is None:
-                print("(speaker not seated — BEANIE_VOICE=1 plus espeak/spd-say/picoSay enables it; "
-                      "replies continue in text)")
-                voice = None
+        voice = _seated_voice(args)
         while True:
             try:
                 line = input("> ")
@@ -190,6 +186,21 @@ def _print_tick(notes: dict) -> None:
     if notes.get("policy"):
         lines.append(f"policy: {notes['policy']}")
     print("\n".join(lines) if lines else "(background pass: nothing needed attention)")
+
+
+def _seated_voice(args):
+    """One seat-check used by the REPL and one-shot modes alike (§11.6):
+    an unseated speaker is one honest line, and text is NEVER muted."""
+    if not args.speak:
+        return None
+    from .voice import Voice
+
+    voice = Voice()
+    if not voice.enabled or voice.speaker() is None:
+        print("(speaker not seated — BEANIE_VOICE=1 plus espeak/spd-say/picoSay enables it; "
+              "replies continue in text)")
+        return None
+    return voice
 
 
 def _speak_reply(voice, text: str) -> None:

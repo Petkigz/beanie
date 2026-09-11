@@ -45,3 +45,16 @@ def test_repl_speak_flag_is_honest_when_the_speaker_is_not_seated(tmp_path, caps
     assert rc == 0
     assert "speaker not seated" in out          # the honest line, once, at seating time
     assert "Received: hello there." in out      # and text output was never muted
+
+
+def test_say_and_speak_speaks_once_or_says_so_honestly(tmp_path, capsys, monkeypatch):
+    """§11.6: one-shot mode honours --speak too — silence would be a broken
+    promise at the flag level (the silent dev-null is the REPL asymmetrically
+    superset problem)."""
+    monkeypatch.delenv("BEANIE_VOICE", raising=False)
+    monkeypatch.setattr("shutil.which", lambda _name: None)  # engine absent on this box
+    state = tmp_path / "mind"
+    assert main(["--state-dir", str(state), "--say", "hello there", "--speak"]) == 0
+    out = capsys.readouterr().out
+    assert "Received: hello there." in out
+    assert "speaker not seated" in out      # the honest line, one time, not silent, not spammed
