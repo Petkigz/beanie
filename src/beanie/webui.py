@@ -240,7 +240,20 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             except json.JSONDecodeError:
                 body = {}
             if path == "/api/step":
-                reply = self.server.mind.step(str(body.get("text", "")).strip())
+                text = str(body.get("text", "")).strip()
+                try:
+                    reply = self.server.mind.step(text)
+                except Exception as exc:
+                    # a JSON 500 carrying the real failure — the window must
+                    # never die because a single turn did (§11.7 honesty)
+                    self._json(code=500)
+                    self._write(json.dumps({
+                        "text": (f"this turn hit an internal error ({type(exc).__name__}: {exc}) — "
+                                 f"the request failed, the window did not crash; the server log has the stack"),
+                        "confidence_label": "frank insecurity",
+                        "turn_id": "", "reminders": [], "questions": [], "error": True,
+                    }).encode())
+                    return
                 self._json()
                 self._write(json.dumps({
                     "text": reply.text,

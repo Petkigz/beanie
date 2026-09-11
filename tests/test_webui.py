@@ -252,3 +252,39 @@ def test_probe_timeout_is_env_configurable_and_slow_but_live_is_not_dead(tmp_pat
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_step_error_is_an_honest_500_and_the_window_survives(tmp_path, monkeypatch):
+    """§11.7: a mind that throws must not kill the phone's window — the answer
+    is a JSON failure carrying the real exception, and the server answers the
+    very next request."""
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+
+    class _Exploding(Mind):
+        def step(self, text):  # only this utterance explodes
+            if "boom" in text:
+                raise RuntimeError("planted failure for the honest-500 test")
+            return super().step(text)
+
+    mind = _Exploding(state_dir=tmp_path / "state")
+    server = make_server(mind, host="127.0.0.1", port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        host, port = server.address
+        client = http.client.HTTPConnection(host, port, timeout=10)
+        client.request("POST", "/api/step", body=json.dumps({"text": "make it boom"}),
+                       headers={"Content-Type": "application/json"})
+        response = client.getresponse()
+        raw = response.read().decode()
+        assert response.status == 500
+        payload = json.loads(raw)
+        assert "RuntimeError" in payload["text"] and "planted failure" in payload["text"]
+        status, body2 = _post(client, "/api/step", {"text": "hello there"})   # window survives
+        assert status == 200
+        assert "Received: hello there." in json.dumps(body2) if not isinstance(body2, str)             else "Received: hello there." in body2
+        status, state = _get(client, "/api/state")
+        assert status == 200
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
