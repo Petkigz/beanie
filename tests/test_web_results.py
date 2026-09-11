@@ -66,7 +66,9 @@ def test_web_need_with_tier_summarizes_and_labels_the_lookup(tmp_path):
     mind.web_fetcher = _fetch
     reply = mind.step("google where does earth's atmosphere end")
     assert "Kármán" in reply.text
-    assert "live" in reply.text.lower() and "2026-09-10" in reply.text  # dated, labelled lookup
+    # dated with TODAY (never a hardcoded date — date literals in tests drift at midnight)
+    import datetime as _dt
+    assert "live" in reply.text.lower() and _dt.date.today().isoformat() in reply.text
     assert "BEST" in reply.text or "Wikipedia" in reply.text
     assert "inner knowledge" not in reply.text  # explicitly separated from memory
 

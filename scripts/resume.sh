@@ -28,6 +28,10 @@ else
     exit 3
 fi
 
+if [ "${RESUME_SKIP_VERIFY:-0}" = "1" ]; then
+    echo "verification skipped (RESUME_SKIP_VERIFY=1 — tests of the ritual itself)"
+    exit 0
+fi
 [ -x .venv/bin/python ] || { echo "venv missing → make setup"; make setup; }
 echo "battery: $(.venv/bin/python -m pytest -q 2>&1 | tail -1)"
 echo "suites:  $(.venv/bin/python -m beanie.measure --suite-dir suites --track-dir results 2>&1 | grep 'Suite summary')"
