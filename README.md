@@ -125,6 +125,7 @@ src/beanie/
                   faithfulness audit over every recorded decision
 Makefile          setup/test/demo/suite/verify/repl/status/webui targets (venv auto-recreation);
                   `make resume`: the session-resume ritual (ls-remote → fetch → reset when strictly behind → battery)
+                  `scripts/push.sh "msg"`: the push gate — refuses to push when either harness is red
 suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
