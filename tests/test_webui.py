@@ -367,3 +367,24 @@ def test_concurrent_windows_never_tear_the_stores(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_page_keeps_its_side_of_the_state_contract():
+    """§11.7, second conformance direction: the server's /api/state fields are
+    only real if the embedded page CONSUMES them — grant buttons that send
+    'you may <cap>', the today chip, and the ⏸ queue chips. A rename on either
+    side that stays silent is a half-shipped feature (dead UI): this test is
+    the mechanical 'no dead wiring' clause for the window."""
+    from beanie.webui import _PAGE
+
+    markers = {
+        "allow button sends the real grant sentence": "'you may ' + pend.capability",
+        "never button sends the real denial": "never use ",
+        "day digest chip reads today events": "s.today",
+        "queue chips are rendered": "s.queue",
+        "state is fetched at all": "/api/state",
+        "the UI speaks via auth send": "send('you may",
+        "denial via the same tube": "send('never use ",
+    }
+    for label, fragment in markers.items():
+        assert fragment in _PAGE, f"page contract broken: {label} ({fragment!r})"
