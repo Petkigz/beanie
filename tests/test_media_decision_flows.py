@@ -90,7 +90,9 @@ def test_play_found_launches_the_player_with_allow(tmp_path, pc, monkeypatch):
     mind._osbody, mind._osbody_probed = fake, True
     reply = mind.step("play me kaba")
     assert any(cap == "play_media" for cap, _ in fake.calls)
-    assert reply.text.startswith("Playing 'kaba.mp3'")
+    assert "Playing 'kaba.mp3'" in reply.text
+    # the first-turn index notice may prefix the serve line; it is prepended only once
+    assert "I'm indexing your files" in reply.text
 
 
 def test_dangerous_work_always_asks_first_and_previews_the_command(tmp_path, pc, monkeypatch):
