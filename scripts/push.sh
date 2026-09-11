@@ -8,6 +8,8 @@
 # Exit codes: 2 = dirty-ish inputs, 5 = test/suite red, else git's own codes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# harness failures must be REPORTED, not fatal-before-message:
+set +e
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 MSG="${1:?usage: bash scripts/push.sh \"commit message\"}"
 
@@ -15,6 +17,7 @@ MSG="${1:?usage: bash scripts/push.sh \"commit message\"}"
 
 bat_out="$(.venv/bin/python -m pytest -q 2>&1)"; bat_rc=$?
 bat_line="$(printf '%s' "$bat_out" | tail -1)"
+if ! printf '%s' "$bat_line" | grep -qE "[0-9]+"; then bat_line="(no pytest summary: $bat_out)"; fi
 echo "battery: $bat_line (exit $bat_rc)"
 if [ "$bat_rc" -ne 0 ] || printf '%s' "$bat_line" | grep -qE "[1-9][0-9]* (failed|error)"; then
     echo "HOLD: the battery is red; pushing a claim it is not."; exit 5
