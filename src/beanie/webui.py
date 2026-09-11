@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
@@ -172,6 +173,13 @@ class MindHTTPServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], mind: Mind) -> None:
         super().__init__(address, _make_handler())
         self.mind = mind
+        # ThreadingHTTPServer uses one thread per connection, while every store
+        # is an in-memory list persisted by full rewrite: two concurrent windows
+        # (phone + PC) would race and tear a JSONL store. This is a personal
+        # window, not a website — strict serialization is the honest tradeoff
+        # (exactness over throughput), and it makes concurrent behaviour a
+        # property we can TEST deterministically.
+        self.lock = threading.Lock()
 
     @property
     def address(self) -> tuple[str, int]:
@@ -203,6 +211,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
         # -- routes ----------------------------------------------------
 
         def do_GET(self) -> None:  # noqa: N802 — stdlib hook name
+            with self.server.lock:
+                self._do_get_locked()
+
+        def _do_get_locked(self) -> None:
             path = urlparse(self.path).path
             if path in ("/", "/index.html"):
                 body = _PAGE.encode()
@@ -233,6 +245,10 @@ def _make_handler() -> type[BaseHTTPRequestHandler]:
             self.send_error(404)
 
         def do_POST(self) -> None:  # noqa: N802 — stdlib hook name
+            with self.server.lock:
+                self._do_post_locked()
+
+        def _do_post_locked(self) -> None:
             path = urlparse(self.path).path
             length = int(self.headers.get("Content-Length") or 0)
             try:

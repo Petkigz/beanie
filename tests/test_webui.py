@@ -315,3 +315,55 @@ def test_busy_port_is_a_guided_exit_not_a_traceback(tmp_path, capfd, monkeypatch
         assert "Traceback" not in (out + capfd.readouterr().err)
     finally:
         holder.close()
+
+
+def test_concurrent_windows_never_tear_the_stores(tmp_path, monkeypatch):
+    """§11.7 + §3: the window serves phone+PC at once — concurrent steps and
+    state reads must leave every store parseable and fully counted; the
+    server's lock is what makes 'at the same time' a property, not a prayer."""
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    mind = Mind(state_dir=tmp_path / "state")
+    server = make_server(mind, host="127.0.0.1", port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        host, port = server.address
+        errors: list[str] = []
+        results: list[int] = []
+
+        def worker(index: int) -> None:
+            try:
+                client = http.client.HTTPConnection(host, port, timeout=15)
+                status, _ = _post(client, "/api/step", {"text": f"hello number {index}"})
+                results.append(status)
+                status, _ = _get(client, "/api/state")
+                results.append(status)
+                client.close()
+            except Exception as exc:  # noqa: BLE001 — any failure is the bug being hunted
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert errors == [], f"concurrent clients produced: {errors}"
+        assert results and all(code == 200 for code in results)
+        # full count, never torn: 12 turns, each with an episode on record
+        import json as _json
+        from beanie.stores import JsonlStore
+        episodes_file = tmp_path / "state" / "episodes.jsonl"
+        for name in ("episodes.jsonl",):
+            path = tmp_path / "state" / name
+            if not path.exists():
+                candidates = list((tmp_path / "state").rglob("*.jsonl"))
+                assert candidates, "no store file found"
+                episodes_file = candidates[0]
+        with episodes_file.open("r", encoding="utf-8") as fh:
+            lines = [line for line in fh if line.strip()]
+        assert len(lines) >= 12
+        for line in lines:
+            _json.loads(line)   # the honesty proof: every line still parses
+    finally:
+        server.shutdown()
+        server.server_close()
