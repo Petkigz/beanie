@@ -213,3 +213,42 @@ def test_state_endpoint_carries_the_day_digest_and_live_queue(tmp_path, monkeypa
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_probe_timeout_is_env_configurable_and_slow_but_live_is_not_dead(tmp_path, monkeypatch):
+    """Row 35 honesty extends to LAN latency: a slow-but-live server reported
+    as dead would be a lie dressed as diagnostics, so the timeout is a
+    documented switch (BEANIE_MODEL_PROBE_TIMEOUT)."""
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from beanie.substrate_http import HTTPSubstrate
+    from beanie.mind import _probe_model_endpoint
+
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    monkeypatch.delenv("BEANIE_AUTOMATION", raising=False)
+
+    class _SlowModels(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            time.sleep(0.35)
+            body = b'{"data": []}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowModels)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        assert _probe_model_endpoint(url, timeout=0.05) is False      # too-tight: times out
+        assert _probe_model_endpoint(url, timeout=2.0) is True        # enough budget: live
+        monkeypatch.setenv("BEANIE_MODEL_PROBE_TIMEOUT", "2.0")
+        mind = Mind(substrate=HTTPSubstrate(base_url=url), state_dir=tmp_path / "state")
+        assert mind.organ_status()["model_tier"]["on"] is True        # env respected
+    finally:
+        server.shutdown()
+        server.server_close()

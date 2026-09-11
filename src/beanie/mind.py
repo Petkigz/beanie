@@ -220,17 +220,26 @@ class Reply:
         }
 
 
-def _probe_model_endpoint(base_url: str, timeout: float = 1.5) -> bool:
+def _probe_model_endpoint(base_url: str, timeout: float | None = None) -> bool:
     """One cheap liveness probe against an OpenAI-compatible /v1 root (§11 row 35):
-    LM Studio and friends answer GET /models; anything else counts as down."""
+    LM Studio and friends answer GET /models; anything else counts as down.
+
+    Timeout defaults to 2.5s (a LAN-hosted tier answers in ms when alive) and
+    can be raised via BEANIE_MODEL_PROBE_TIMEOUT — the switch matters because a
+    slow-but-live server must never be reported as dead."""
     import urllib.error
     import urllib.request
 
+    if timeout is None:
+        try:
+            timeout = float(os.environ.get("BEANIE_MODEL_PROBE_TIMEOUT", "2.5"))
+        except ValueError:
+            timeout = 2.5
     url = base_url.rstrip("/") + "/models"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
             return 200 <= response.status < 300
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return False
 
 
@@ -1205,7 +1214,9 @@ class Mind:
             # fix — the chart shows reachability, not just configuration
             reachable = _probe_model_endpoint(str(self.substrate.base_url))
             model_detail = (f"{self.substrate.name} @ {self.substrate.base_url} "
-                            f"({'reachable' if reachable else 'UNREACHABLE — is LM Studio serving?'})")
+                            + "(" + ("reachable" if reachable else "UNREACHABLE — is LM Studio serving? "
+                             "(on LAN-hosted tiers, raise BEANIE_MODEL_PROBE_TIMEOUT if it answers slowly)")
+                            + ")")
             if not reachable:
                 model_on = False
                 model_switch = "LM Studio → Developer tab → Status: Running (then re-run --status)"
