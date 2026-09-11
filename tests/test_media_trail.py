@@ -74,3 +74,25 @@ def test_trail_without_media_context_is_not_invented(tmp_path, pc):
     reply = mind.step("no, the other one")
     assert "last media" not in reply.text or "nothing" in reply.text.lower() or "context" in reply.text.lower()
     # never claims a trail that doesn't exist
+
+
+def test_first_index_build_is_announced_second_one_is_quiet(tmp_path, monkeypatch):
+    """The first play on a real machine walks the whole home dir (§11.2) —
+    silence there reads as 'hung', so the reply says *what is happening*; the
+    second play (index persisted) no longer pays the line."""
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    root = tmp_path / "music_root"
+    root.mkdir()
+    (root / "kaba.mp3").write_text("audio")
+    mind = Mind(state_dir=tmp_path / "state")
+    mind._file_index().add_root(root)
+
+    reply = mind.step("play me kaba")
+    assert "indexing your files for the first time" in reply.text
+    events = [e for e in mind.trace.events_for(reply.turn_id) if e.kind == "media"]
+    assert events and events[0].payload["first_index_build"] is True
+
+    mind2 = Mind(state_dir=tmp_path / "state")      # a fresh process, same state
+    mind2._file_index().add_root(root)
+    reply2 = mind2.step("play me kaba")
+    assert "indexing your files for the first time" not in reply2.text

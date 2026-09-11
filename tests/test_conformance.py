@@ -209,6 +209,7 @@ def test_first_session_runbook_quotes_are_real_code_strings():
         "Done — '",
         "nothing was guessed",
         "couldn't reach the web",
+        "I'm indexing your files for the first time",
         "a live lookup from DuckDuckGo",
         "say 'you may {capability}' to allow it",
         "isn't on this machine",

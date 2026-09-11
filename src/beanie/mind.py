@@ -1797,6 +1797,12 @@ class Mind:
         song the machine does not have streams — and the reply says which happened."""
         target = need.target.strip()
         index = self._file_index()
+        # the FIRST build (nothing persisted yet) can walk a whole home dir —
+        # silence there reads as 'hung', so the reply says what is happening;
+        # later builds are incremental and no longer worth a line
+        index_notice = (
+            "I'm indexing your files for the first time — a moment, this only happens once. "
+            if index.count() == 0 else "")
         index.build()
         matches = index.search(target, limit=5)
         body = self._os_body()
@@ -1827,8 +1833,11 @@ class Mind:
                 else:
                     reply_text = f"'{target}' isn't on this machine. I could open {what} on YouTube ({url}) — {question}"
                     confidence = 0.7
+        if index_notice:
+            reply_text = index_notice + reply_text
         self.trace.append(turn_id, "media", {
-            "target": target, "matched": matches[0].path if matches else None,
+            "target": target, "first_index_build": bool(index_notice),
+            "matched": matches[0].path if matches else None,
             "alternatives": [m.path for m in matches[1:]], "decision": need.to_dict()})
         episode = self._record_episode(
             turn_id, reply_text, confidence, True, None,

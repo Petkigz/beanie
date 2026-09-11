@@ -35,7 +35,9 @@ for row 35 (`--status` pronounced correctly on a real box).
    play_media needs your permission first — say 'you may play_media' to allow it…"* (row 42 local-first + the
    ask), or, if nothing on disk: *"'kaba' isn't on this machine. I could open the
    search results on YouTube (<url>) — <the ask>"* (row 43 honest absence; grant
-   `open_url` once). The first play also builds the file index silently.
+   `open_url` once). The first play announces its own cost: *"I'm indexing your
+   files for the first time — a moment, this only happens once."* (later plays
+   reuse the persisted index, silently).
    Ask **in your phone in the WebUI** (`make webui`, open `http://<pc-ip>:8080`):
    say the same sentence; the pending permission ask appears as ⚠ chips with
    **Allow / Never**. Tap Allow once — the PC obeys the rule everywhere afterwards.
