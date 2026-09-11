@@ -288,3 +288,30 @@ def test_step_error_is_an_honest_500_and_the_window_survives(tmp_path, monkeypat
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_busy_port_is_a_guided_exit_not_a_traceback(tmp_path, capfd, monkeypatch):
+    """§11.7 first-run hygiene: port-in-use says 'close the old window or pass
+    --port', exits non-zero, and never dumps a stack at the owner."""
+    monkeypatch.delenv("BEANIE_BODY_OS", raising=False)
+    import socket as _socket
+
+    holder = _socket.socket()
+    holder.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    holder.bind(("127.0.0.1", 0))
+    holder.listen(1)
+    taken = holder.getsockname()[1]
+    try:
+        import pytest
+
+        with pytest.raises(SystemExit) as exit_info:
+            from beanie.webui import main as webui_main
+            webui_main(["--state-dir", str(tmp_path / "state"),
+                        "--host", "127.0.0.1", "--port", str(taken)])
+        assert exit_info.value.code == 3
+        out = capfd.readouterr().out
+        assert "cannot open the window" in out
+        assert "--port" in out
+        assert "Traceback" not in (out + capfd.readouterr().err)
+    finally:
+        holder.close()

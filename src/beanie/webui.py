@@ -296,7 +296,16 @@ def main(argv: Optional[list[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     mind = build_mind(Path(args.state_dir))
-    server = make_server(mind, host=args.host, port=args.port)
+    try:
+        server = make_server(mind, host=args.host, port=args.port)
+    except OSError as exc:
+        # the most common first-run trap: a stale window still holds 8080 —
+        # say exactly that and exit loud, never trace-dump at the owner
+        print(f"◌ cannot open the window on {args.host}:{args.port} — {exc}. "
+              f"A previous window is probably still holding the port; close it, "
+              f"or restart the window on a different port with --port <number>.",
+              flush=True)
+        raise SystemExit(3) from exc
     host, port = server.address
     print(f"◉ Beanie's web window is open: http://{host}:{port}/  (Ctrl+C to close)")
     try:
