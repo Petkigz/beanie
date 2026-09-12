@@ -58,3 +58,43 @@ def test_say_and_speak_speaks_once_or_says_so_honestly(tmp_path, capsys, monkeyp
     out = capsys.readouterr().out
     assert "Received: hello there." in out
     assert "speaker not seated" in out      # the honest line, one time, not silent, not spammed
+
+
+def test_check_model_reports_reachable_and_ok_against_a_stub_server(tmp_path, capsys, monkeypatch):
+    """The owner's second onboarding instrument (after --status): --check-model
+    must prove both tiers against a REAL endpoint, with exit 0 only when both answer."""
+    import json as _json
+    import threading as _threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class _Chat(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            body = _json.dumps({"choices": [{"message": {"content": "pong"}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Chat)
+    _threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("BEANIE_MODEL_URL", f"http://127.0.0.1:{server.server_address[1]}")
+        from beanie.cli import main as cli_main
+        rc = cli_main(["--state-dir", str(tmp_path / "s1"), "--check-model"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Fast tier: ok" in out and "Deep tier: ok" in out
+
+        monkeypatch.setenv("BEANIE_MODEL_URL", "http://127.0.0.1:9")   # nothing lives there
+        rc = cli_main(["--state-dir", str(tmp_path / "s2"), "--check-model"])
+        assert rc == 1                                                   # down is a red, not a crash
+        out = capsys.readouterr().out
+        assert "unreachable" in out.lower()
+    finally:
+        server.shutdown()
+        server.server_close()
