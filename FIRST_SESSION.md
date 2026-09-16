@@ -77,6 +77,37 @@ With `BEANIE_AUTOMATION=1` + `pyatspi` (Linux) or `pywinauto` (Windows) installe
 - `why did you say that?` → a citation-carrying explanation (`record:<id>`, `turn:<id>`).
 - `make status` — note the difference between down and unconfigured once more.
 
+## Appendix A+ — seat a bigger brain (the tier is a 3-variable swap)
+
+The shell's intelligence ceiling is whatever answers `BEANIE_MODEL_URL`. All of
+these run through the SAME tested seam (`HTTPSubstrate` + `--check-model`),
+so the upgrade path is three environment variables, never code:
+
+```bash
+# LM Studio local, strongest model that fits your VRAM (70B-class instruct if you can):
+export BEANIE_MODEL_URL=http://localhost:1234/v1
+export BEANIE_MODEL_NAME="<the model you loaded in LM Studio>"
+
+# LM Studio, dual-tier option: cheap model for System-1, strong one for System-2:
+export BEANIE_MODEL_FAST_NAME="<small cheap model>"     # gut answers / proposals
+export BEANIE_MODEL_NAME="<large strong model>"          # verification / deep tier
+
+# cloud-grade without changing a line of code (your key, your account):
+export BEANIE_MODEL_URL=https://api.openai.com/v1        # or https://openrouter.ai/api/v1
+export BEANIE_API_KEY="<your key>"                        # NEVER commit this; keep it in your shell rc
+export BEANIE_MODEL_NAME="<the strongest model on that provider>"
+
+# then the real-tier instrument chain:
+.venv/bin/python -m beanie.cli --check-model              # both tiers must print 'ok'
+.venv/bin/python -m beanie.measure --suite-dir suites --substrate http
+```
+
+Honest expectations: bigger tiers raise answer quality everywhere (deep tier,
+web summaries, GUI planning); they do NOT change the honesty/autonomy postures
+— budgets, asks, and audit stay bounded by *your* rules, not the model's size.
+Local keeps privacy and costs you capability; cloud buys capability and gives
+your provider the log. The shell imposes both tradeoffs, never hides them.
+
 ## The Level-2 checklist (fill with dates as you observe them)
 
 | Row | Observation to record | Date ✔ |
