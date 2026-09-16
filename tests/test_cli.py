@@ -98,3 +98,30 @@ def test_check_model_reports_reachable_and_ok_against_a_stub_server(tmp_path, ca
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_transcribe_flag_is_honest_without_an_engine_and_speaks_with_one(tmp_path, capsys, monkeypatch):
+    """§11.6: the ear-check must never fake a transcript. No engine → red +
+    the seat-it line naming the checked engines. With an engine (mocked at the
+    Voice seam, as no real model ships in this sandbox) → the transcript."""
+    state = tmp_path / "mind"
+    (tmp_path / "clip.wav").write_bytes(b"fake-audio")
+
+    import beanie.voice as voice_mod
+    monkeypatch.setattr(voice_mod.Voice, "transcription_engine", lambda self: None)
+    rc = main(["--state-dir", str(state), "--transcribe", str(tmp_path / "clip.wav")])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "no transcription engine" in out and "faster-whisper" in out and "ears are unseated" in out
+
+    monkeypatch.setattr(voice_mod.Voice, "transcription_engine", lambda self: "faster_whisper")
+    from beanie.voice import VoiceResult
+    monkeypatch.setattr(voice_mod.Voice, "transcribe",
+                        lambda self, path: VoiceResult(True, "transcribed", "hello computer"))
+    rc = main(["--state-dir", str(state), "--transcribe", str(tmp_path / "clip.wav")])
+    assert rc == 0
+    assert "hello computer" in capsys.readouterr().out
+
+    rc = main(["--state-dir", str(state), "--transcribe", str(tmp_path / "missing.wav")])
+    assert rc == 1
+    assert "no such audio file" in capsys.readouterr().out

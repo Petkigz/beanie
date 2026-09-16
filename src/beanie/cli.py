@@ -42,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", action="store_true", help="prefix replies with the communicated confidence label (T8)")
     parser.add_argument("--speak", action="store_true",
                         help="speak replies through platform-native speech (§11.6; needs BEANIE_VOICE=1 and an engine)")
+    parser.add_argument("--transcribe", default=None, metavar="AUDIO",
+                        help="ear-check: transcribe an audio file via an installed engine (§11.6; honest no-engine line otherwise)")
     parser.add_argument("--tick", type=int, default=0,
                         help="run N background-cognition passes (idle budget) and print what they did")
     parser.add_argument("--check-model", action="store_true",
@@ -78,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
             _print_tick(mind.tick())
         if args.say is None:
             return 0
+
+    if args.transcribe is not None:
+        return _transcribe_once(args.transcribe)
 
     if args.say is not None:
         reply = mind.step(args.say)
@@ -186,6 +191,30 @@ def _print_tick(notes: dict) -> None:
     if notes.get("policy"):
         lines.append(f"policy: {notes['policy']}")
     print("\n".join(lines) if lines else "(background pass: nothing needed attention)")
+
+
+def _transcribe_once(audio_path: str) -> int:
+    """One-shot ear-check (§11.6): the runbook's 'do the ears work?' command.
+    Honest in both directions — no engine and missing file are reds, never fakes."""
+    from .voice import Voice
+
+    voice = Voice()
+    engine = voice.transcription_engine()
+    if engine is None:
+        print(f"no transcription engine installed (checked: faster-whisper, SpeechRecognition) — "
+              f"the ears are unseated; .venv/bin/pip install faster-whisper seats them, "
+              f"and the WebUI's browser route needs nothing installed at all.")
+        return 1
+    import os as _os
+    if not _os.path.exists(audio_path):
+        print(f"no such audio file: {audio_path}")
+        return 1
+    result = voice.transcribe(audio_path)
+    if not result.ok:
+        print(f"transcription failed unexpectedly ({result.why}: {result.detail})")
+        return 1
+    print(result.detail)
+    return 0
 
 
 def _seated_voice(args):

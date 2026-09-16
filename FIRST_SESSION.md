@@ -17,6 +17,8 @@ export BEANIE_MODEL_URL=http://localhost:1234/v1
 export BEANIE_BODY_OS=1                # the machine's body is opt-in
 export BEANIE_AUTOMATION=1             # screen navigation is opt-in; `pip install pyautogui`
 make status
+.venv/bin/python -m beanie.cli --check-model    # proves BOTH tiers against the live endpoint
+.venv/bin/python -m beanie.cli --transcribe clip.wav   # the ear-check (honest no-engine red)
 ```
 
 **Expected:** `model_tier` ◉ marked *reachable* (if it says UNREACHABLE, the fix line is
