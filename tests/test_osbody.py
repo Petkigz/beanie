@@ -74,3 +74,25 @@ def test_real_local_execution_still_works(monkeypatch):
     body = OSBody(dry_run=False)
     out = body.run("shell", {"command": "echo beanie-os-body"})
     assert out["returncode"] == 0 and "beanie-os-body" in out["stdout"]
+
+
+def test_the_dry_run_env_switch_bites_with_no_side_effect(tmp_path, monkeypatch):
+    """BEANIE_BODY_DRYRUN=1: the docs promise this switch turns EVERY action
+    into the honest plan — it was the sweep's one undiagnosed var (documented
+    in 3 places, in code, but never pinned). It must bite from the env itself,
+    on any action, with zero side effect."""
+    monkeypatch.setenv("BEANIE_BODY_OS", "1")
+    monkeypatch.setenv("BEANIE_BODY_DRYRUN", "1")
+    body = OSBody(cwd=str(tmp_path))          # env alone must carry dry_run
+    assert body.dry_run is True
+
+    marker = tmp_path / "nope.txt"
+    outcome = body.run("shell", {"command": f"touch {marker}"})
+    assert outcome == {"dry_run": True, "would_run": f"touch {marker}"}
+    assert not marker.exists()                # the switch BIT: nothing touched
+
+    planned = body.run("open_file", {"path": str(marker)})
+    assert planned["dry_run"] is True and "xdg-open" in planned["would_run"]
+
+    monkeypatch.delenv("BEANIE_BODY_DRYRUN")  # and lifting the switch restores heat
+    assert OSBody(cwd=str(tmp_path)).dry_run is False
