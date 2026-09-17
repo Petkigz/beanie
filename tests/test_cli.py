@@ -125,3 +125,26 @@ def test_transcribe_flag_is_honest_without_an_engine_and_speaks_with_one(tmp_pat
     rc = main(["--state-dir", str(state), "--transcribe", str(tmp_path / "missing.wav")])
     assert rc == 1
     assert "no such audio file" in capsys.readouterr().out
+
+
+def test_label_and_audit_explanations_flags_pin_their_cli_surfaces(tmp_path, capsys):
+    """§9.8/§9.9 at the shell edge: the last two flag surfaces without a CLI
+    test. --label must prefix the one-shot reply with the communicated
+    confidence label; --audit-explanations must be honest about an empty
+    record and then actually audit once the mind has turned (internals of
+    faithfulness live in their own suite; this pins entry + rc)."""
+    state = tmp_path / "mind"
+
+    rc = main(["--state-dir", str(state), "--audit-explanations"])
+    assert rc == 0
+    assert "no decisions on record yet" in capsys.readouterr().out
+
+    rc = main(["--state-dir", str(state), "--say", "hello", "--label"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.startswith("[") and "] " in out.splitlines()[0]   # label prefix present
+
+    rc = main(["--state-dir", str(state), "--audit-explanations"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "explanation audit:" in out and "turn(s)" in out and "violation(s)" in out
