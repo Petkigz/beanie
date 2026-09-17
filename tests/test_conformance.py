@@ -216,3 +216,29 @@ def test_first_session_runbook_quotes_are_real_code_strings():
     ]
     for fragment in fragments:
         assert fragment in code, f"runbook quotes a phrase the code never says: {fragment!r}"
+
+
+def test_every_documented_env_var_is_in_code_and_pinned_by_tests():
+    """Env-hygiene gate (born of the sweep that found BEANIE_BODY_DRYRUN
+    undiagnosed): any BEANIE_* switch the docs teach the owner to set must be
+    real in src/ AND referenced in tests/ — else a doc can promise behavior
+    nobody pinned, and nobody would notice until it matters."""
+    import pathlib as _pl
+    import re as _re
+
+    root = _pl.Path(__file__).resolve().parent.parent
+    doc_files = [p for p in root.rglob("*.md") if ".venv" not in p.parts and "results" not in p.parts]
+    found = set()
+    for doc in doc_files:
+        found.update(_re.findall(r"BEANIE_[A-Z_]+", doc.read_text(encoding="utf-8")))
+
+    code = "\n".join(p.read_text(encoding="utf-8")
+                     for p in (root / "src" / "beanie").rglob("*.py"))
+    tests = "\n".join(p.read_text(encoding="utf-8")
+                      for p in (root / "tests").glob("*.py"))
+
+    assert found, "suspicious: no BEANIE_ vars found in any doc (gate is blind)"
+    missing_code = sorted(v for v in found if v not in code)
+    missing_tests = sorted(v for v in found if v not in tests)
+    assert not missing_code, f"docs promise nonexistent switch(es): {missing_code}"
+    assert not missing_tests, f"docs promise unpinned switch(es): {missing_tests}"
