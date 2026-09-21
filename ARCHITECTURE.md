@@ -434,7 +434,7 @@ substrate or longitudinal history for their full pass criterion (VISION §5).
 
 Module → spec map: `records` §3 envelope · `stores` §3.1–3.7 · `belief` §3.6 + T2/T11/T12 ·
 `calibration` T8/T13 · `learning` §6 + T1/T3/T9 · `preferences` §6/T4 · `body` §5/§7/§11.4 ·
-`planning` T1/T3/T12/§4.8 · `simulate` Domain A / rows 10–11 (counterfactual replay over
+`planning` T1/T3/T12/§4.8 · `select` §13.5 (RSI selector: advisory proposals, never executes) · `simulate` Domain A / rows 10–11 (counterfactual replay over
 the body, never touching it) · `intention` §3.7 · `reflection` §4.3 · `explain` §4.5/T10 ·
 `cognition` §4.6/4.7/T5 · `attention` §4.2 · `mind` §4.1 (incl. relevance-aware recall,
 row 7, and the owner-belief layer, row 33) · `searchindex` §11.2 · `streaming` §11.2 ·
@@ -699,6 +699,21 @@ its README declares the sandbox couldn't compile it — Android Studio on the ow
 machine is the build step, and that is stated, not implied.
 
 ---
+
+## 12. The RSI boundary — improvement is CHOSEN and DONE by different organs
+
+§13.5 doctrine: recursive self-improvement is safe exactly to the degree that
+selection, execution, research, experimentation and weight updates are
+different organs with receipts between them. Built now (row lineage in
+CAPABILITY_REGISTER): the SELECTOR (`select.py`) — it scans live evidence
+(pending skills, recorded failure modes, incubated questions, calibration
+correction pressure), emits ranked Proposal objects bounded to promote /
+probe / tune / patch with risk never above medium, and is structurally unable
+to execute (`--propose` is its only mouth). Deliberately NOT built before
+live evidence exists: the sandboxed patch executor, the trace→dataset miner
+(dataset starvation is the honest principal state until retirement of the
+first live months is in the store) and the fine-tune/re-seat loop (weights are
+an owner-gated promotion, forever).
 
 *Every file, module, and prompt added to this repository must be traceable to a store, a
 behavior, or a tested property in this document — or it must change this document first.*

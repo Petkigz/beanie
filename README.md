@@ -125,6 +125,7 @@ src/beanie/
                   faithfulness audit over every recorded decision
 Makefile          setup/test/demo/suite/verify/repl/status/webui targets (venv auto-recreation);
                   `make resume`: the session-resume ritual (ls-remote → fetch → reset when strictly behind → battery)
+                  `--propose`: RSI selector (§13.5): ranks WHAT to improve next from live evidence; advisory only, never executes
                   `scripts/push.sh "msg"`: the push gate — refuses to push when either harness is red
                   git notes live in refs/notes/commits (pushed): the ledger annex for known
                   blemishes — history is annotated, never rewritten; unicode sweeps run in python,
@@ -132,7 +133,7 @@ Makefile          setup/test/demo/suite/verify/repl/status/webui targets (venv a
 suites/           26 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            277 tests incl. the conformance drift guard + T-test battery
+tests/            282 tests incl. the conformance drift guard + T-test battery
 android_app/      Android companion WebView shell (KOTLIN; see its README: built by
                   Android Studio on the owner's machine, honest about sandbox limits)
 ```

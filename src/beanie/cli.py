@@ -42,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", action="store_true", help="prefix replies with the communicated confidence label (T8)")
     parser.add_argument("--speak", action="store_true",
                         help="speak replies through platform-native speech (§11.6; needs BEANIE_VOICE=1 and an engine)")
+    parser.add_argument("--propose", action="store_true",
+                        help="advisory RSI selector: rank WHAT to improve next from live evidence (§13.5; never executes)")
     parser.add_argument("--transcribe", default=None, metavar="AUDIO",
                         help="ear-check: transcribe an audio file via an installed engine (§11.6; honest no-engine line otherwise)")
     parser.add_argument("--tick", type=int, default=0,
@@ -58,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
         return _check_model()
 
     mind = build_mind(Path(args.state_dir))
+    if args.propose:
+        from .select import ImprovementSelector
+        print(ImprovementSelector(mind).report())
+        return 0
 
     if args.status:
         pending = mind.pending_permission_requests()
