@@ -25,6 +25,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="run N background-cognition passes (idle budget) and print what they did")
     parser.add_argument("--check-model", action="store_true",
                         help="ping the configured model tier (BEANIE_MODEL_URL) and exit")
+    parser.add_argument("--find", default=None, metavar="TEXT",
+                        help="search the whole-machine index (§D6) and print ranked matches with the "
+                             "reason each one matched; roots come from BEANIE_INDEX_ROOTS")
+    parser.add_argument("--kinds", default="", metavar="audio,video",
+                        help="limit --find to these file kinds (audio, video, image, document, ...)")
+    parser.add_argument("--reindex", action="store_true",
+                        help="rebuild the whole-machine index before doing anything else")
     parser.add_argument("--audit-explanations", action="store_true",
                         help="run the §9.9 faithfulness audit over every recorded decision and exit")
     args = parser.parse_args(argv)
@@ -33,6 +40,28 @@ def main(argv: list[str] | None = None) -> int:
         return _check_model()
 
     mind = Mind(state_dir=Path(args.state_dir))
+
+    if args.reindex:
+        mind._index_scanned_at = 0.0          # force a full walk rather than a cached one
+        report = mind.index.scan(incremental=False)
+        print(f"reindex: {report.to_text()}")
+        print(f"  roots: {', '.join(mind.index.roots)}")
+        if not report.skipped:
+            print("  no directory was excluded")
+
+    if args.find:
+        kinds = tuple(k.strip() for k in args.kinds.split(",") if k.strip())
+        report = mind.index.scan(incremental=True)
+        hits = mind.index.search(args.find, kinds=kinds, limit=10)
+        print(f"search '{args.find}' over {report.files:,} indexed file(s)"
+              + (f", kinds: {', '.join(kinds)}" if kinds else ""))
+        if not hits:
+            print("  nothing matched well enough to call it a result — that is the honest answer,")
+            print("  not a guess. Widen BEANIE_INDEX_ROOTS if the file lives outside them.")
+        for position, hit in enumerate(hits, start=1):
+            print(f"  {position}. {hit.to_text()}")
+            print(f"     {hit.record.path}")
+        return 0 if hits else 1
 
     if args.audit_explanations:
         return _audit_explanations(mind)

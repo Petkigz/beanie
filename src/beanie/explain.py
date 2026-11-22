@@ -33,7 +33,7 @@ from .trace import Trace
 UTC = _dt.timezone.utc
 
 # Section order in the rendered explanation (§4.5)
-CLAIM_SECTIONS = ("context", "effort", "evidence", "alternative", "confidence", "residual")
+CLAIM_SECTIONS = ("context", "effort", "route", "evidence", "alternative", "confidence", "residual")
 
 # calibration keys that mean "the evidence state moved the number" — their
 # presence makes the confidence reasoning a material input (§9.9)
@@ -114,6 +114,7 @@ class Explanation:
         lines = [self.summary]
         blocks = {
             "context": "What I was answering:",
+            "route": "How I decided to do it:",
             "effort": "How much effort it took:",
             "evidence": "Evidence I used:",
             "alternative": "Alternatives I considered and set aside:",
@@ -239,6 +240,48 @@ class ExplanationService:
                         ref=f"turn:{turn_id}:decision.escalated_from",
                         asserted={"escalated_from": escalated},
                         actual={"escalated_from": escalated},
+                    )
+                )
+
+        # --- route: which way the task was done, and what was turned down (§D9) --
+        if decision is not None and decision.payload.get("routes"):
+            routes = decision.payload.get("routes") or []
+            intent = decision.payload.get("intent") or {}
+            if intent.get("action"):
+                claims.append(
+                    Claim(
+                        section="route",
+                        text=f"read the request as '{intent.get('action')}' of "
+                             f"'{intent.get('object', '')}'",
+                        ref=f"turn:{turn_id}:decision.intent.action",
+                        asserted={"action": intent.get("action")},
+                        actual={"action": intent.get("action")},
+                    )
+                )
+            chosen_id = decision.payload.get("chosen")
+            chosen_index = next((i for i, r in enumerate(routes) if r.get("id") == chosen_id), None)
+            others = sorted((i for i in range(len(routes)) if i != chosen_index),
+                            key=lambda i: -float(routes[i].get("score") or 0.0))[:3]
+            for position in ([chosen_index] if chosen_index is not None else []) + others:
+                route = routes[position]
+                route_id = route.get("id", "?")
+                score = route.get("score", 0)
+                reason = "; ".join(route.get("why") or [])[:150] or route.get("summary", "")
+                if position == chosen_index:
+                    text = f"route chosen: '{route_id}' scored {score} — {reason}"
+                    asserted = {"id": route_id, "score": score}
+                else:
+                    eligible = bool(route.get("eligible"))
+                    text = (f"route not chosen: '{route_id}' scored {score}, "
+                            f"eligible={eligible} — {reason}")
+                    asserted = {"id": route_id, "score": score, "eligible": eligible}
+                claims.append(
+                    Claim(
+                        section="route",
+                        text=text,
+                        ref=f"turn:{turn_id}:decision.routes[{position}]",
+                        asserted=asserted,
+                        actual=dict(asserted),
                     )
                 )
 

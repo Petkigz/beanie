@@ -1,0 +1,39 @@
+{
+  "id": "media_request",
+  "description": "Ambiguous real-world task (§D4): 'play me kaba' is read as a media request, the whole machine is searched rather than one folder (§D6), the best match is played with the reason it matched, a document is never played as a song, and a song that is not on the machine falls back to the web. The decision gate (§D9) records the route it chose and every route it turned down, and §9.9 audits that record.",
+  "authority": "allow",
+  "setup": {
+    "dirs": [
+      "music",
+      "documents",
+      "somewhere/deep/nested"
+    ],
+    "files": {
+      "music/02 - Kaba (128kbps).mp3": "x",
+      "somewhere/deep/nested/Kaba by Kapeke.m4a": "x",
+      "documents/invoice_2024.pdf": "x"
+    }
+  },
+  "turns": [
+    {
+      "user": "play me kaba",
+      "expect": "playing"
+    },
+    {
+      "user": "find my invoice",
+      "expect": "found"
+    },
+    {
+      "user": "play me invoice",
+      "expect": "document"
+    },
+    {
+      "user": "play me somethingnotonthismachine",
+      "expect": "youtube.com"
+    },
+    {
+      "user": "explain your last answer",
+      "expect": "how i decided to do it"
+    }
+  ]
+}

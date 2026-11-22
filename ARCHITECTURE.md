@@ -448,3 +448,32 @@ substrate over time — VISION §5 scoring rules).
 
 *Every file, module, and prompt added to this repository must be traceable to a store, a
 behavior, or a tested property in this document — or it must change this document first.*
+
+## 11. Owner directives (D-series, added 2026-09-10)
+
+The owner extended the spec after §§1–10 were locked. The directives live in
+[OWNER_DIRECTIVES.md](./OWNER_DIRECTIVES.md) and are cited as **§D1–§D9**; this section is
+where they attach to the architecture already built, so nothing becomes a parallel spec.
+
+| Directive | Attaches to | Mechanism |
+|---|---|---|
+| §D1 LM Studio, local, with internet | §2 substrate | `substrate_http.py` (OpenAI-compatible), `--check-model` |
+| §D2 OS control: Windows/Linux/macOS/Android + app operation | §7 embodiment | `body.py` launchers, `oscontrol/*` (phase P3) |
+| §D2c sandbox/container for risky or foreign-OS work | §5, §7 | Docker adapter (phase P3) |
+| §D3 WebUI + Android app, voice or typing | §4.1 loop | UI is a window onto one mind (phase P4) |
+| §D4 ambiguous tasks ("play me kaba") | §4.1, §7 | `gate.py` intent + route, `index.py` search |
+| §D5 learn on demand from the web, including video | §4.3, §6 | research/video pipeline (phase P5) |
+| §D6 whole-machine index, "Everything"-grade matching | §3.2 world state | `index.py` |
+| §D7 one brain, human-shaped organs | §1, §4 | organ map; every turn records which organ answered |
+| §D8 permission gate: autonomous unless dangerous | §5 authority | `AuthorityGate`, four states, persisted rules |
+| §D9 the decision gate is the crux | §4.1, §4.6 | `gate.py`: enumerate → filter → score → choose → re-decide |
+
+Two rules from §§1–10 apply to every D-series module without exception, and they are the
+reason this section exists rather than a fresh document:
+
+1. **Nothing is claimed, only implemented or not.** A capability that exists only on the
+   owner's machine ships with a documented double and a self-test, and every result says
+   which mode it ran in (`mode="simulated"` is part of the payload, not a comment).
+2. **Every answer is auditable (§9.9).** A route choice is a claim like any other: the
+   chosen route, its score, and the alternatives it beat are recorded in the trace and must
+   be cited by any explanation of the turn.

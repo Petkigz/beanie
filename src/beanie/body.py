@@ -24,12 +24,31 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .index import kind_of
 from .records import DecayProfile, Entry, EvidenceRef, RecordKind, Source, Volatility
 from .stores import Memory
+
+
+# How a file or URL is handed to the operating system, per platform (§D2).
+# A tuple, not a string: no shell interpolation, so a filename with a quote or a
+# space in it cannot turn into a second command.
+LAUNCHERS: dict[str, tuple[str, ...]] = {
+    "darwin": ("open",),
+    "win32": ("cmd", "/c", "start", ""),
+    "linux": ("xdg-open",),
+    "android": ("am", "start", "-a", "android.intent.action.VIEW", "-d"),
+}
+
+
+def launcher_for(platform: str) -> tuple[str, ...]:
+    """The launcher this OS uses — a pure function so the choice is testable
+    without launching anything (§D2 covers Windows/Linux/macOS/Android)."""
+    return LAUNCHERS.get(platform, LAUNCHERS["linux"])
 
 
 class BodyError(Exception):
@@ -71,6 +90,12 @@ class SandboxBody:
             "move_file": "moves a file into a directory",
             "delete_file": "deletes a file",
             "snapshot": "senses the whole tree (state for verify)",
+            # §D2/§D4 — present so the decision gate can reason about them, but this
+            # body has no screen, no player and no network: every result says
+            # mode="simulated" so no report can mistake it for a real launch.
+            "play_media": "records that a media file would be played (simulated here)",
+            "open_path": "records that a file would be opened (simulated here)",
+            "open_url": "records that a URL would be opened (simulated here)",
         }
 
     def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -127,6 +152,31 @@ class SandboxBody:
             return {"path": str(args["path"]), "deleted": True}
         raise BodyError(f"no such file: {args['path']}", kind="missing_source")
 
+    def _op_play_media(self, args: dict[str, Any]) -> dict[str, Any]:
+        """§D4's last step, in the only form a sandbox can honestly take."""
+        path = _safe(self.root, str(args.get("path", "")))
+        if not path.exists():
+            raise BodyError(f"no such file to play: {args.get('path')}", kind="missing_source")
+        return {
+            "outcome": "success", "mode": "simulated", "path": str(path),
+            "kind": kind_of(path.name),
+            "player": "none — a sandbox body has no media player, so the launch is recorded, not performed",
+        }
+
+    def _op_open_path(self, args: dict[str, Any]) -> dict[str, Any]:
+        path = _safe(self.root, str(args.get("path", "")))
+        if not path.exists():
+            raise BodyError(f"no such file to open: {args.get('path')}", kind="missing_source")
+        return {"outcome": "success", "mode": "simulated", "path": str(path),
+                "kind": kind_of(path.name) if path.is_file() else "directory"}
+
+    def _op_open_url(self, args: dict[str, Any]) -> dict[str, Any]:
+        url = str(args.get("url", ""))
+        if not url.startswith(("http://", "https://")):
+            raise BodyError("open_url only accepts http(s) URLs", kind="invalid_argument")
+        return {"outcome": "success", "mode": "simulated", "url": url,
+                "browser": "none — a sandbox body has no network, so the open is recorded, not performed"}
+
     def _op_snapshot(self, args: dict[str, Any] | None = None) -> dict[str, Any]:
         tree: dict[str, Any] = {}
         for path in sorted(self.root.rglob("*")):
@@ -150,17 +200,50 @@ class OSBody:
 
     @property
     def capabilities(self) -> dict[str, str]:
-        return {"shell": "runs a shell command in the owner's environment"}
+        return {
+            "shell": "runs a shell command in the owner's environment",
+            "play_media": "hands a media file to this OS's default player (§D2/§D4)",
+            "open_path": "opens a file or folder with this OS's own handler (§D2)",
+            "open_url": "opens a URL in the owner's default browser (§D2/§D4)",
+        }
 
     def run(self, capability: str, args: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        if capability != "shell":
-            raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
         args = args or {}
-        command = str(args["command"])
-        result = subprocess.run(  # noqa: S603 — explicit opt-in body
-            shlex.split(command), cwd=self.cwd, capture_output=True, text=True, timeout=int(args.get("timeout", 30))
-        )
-        return {"returncode": result.returncode, "stdout": result.stdout[-4000:], "stderr": result.stderr[-2000:]}
+        if capability == "shell":
+            command = str(args["command"])
+            result = subprocess.run(  # noqa: S603 — explicit opt-in body
+                shlex.split(command), cwd=self.cwd, capture_output=True, text=True,
+                timeout=int(args.get("timeout", 30)),
+            )
+            return {"outcome": "success" if result.returncode == 0 else "failed",
+                    "returncode": result.returncode, "stdout": result.stdout[-4000:],
+                    "stderr": result.stderr[-2000:]}
+        if capability in ("play_media", "open_path", "open_url"):
+            return self._launch(capability, args)
+        raise BodyError(f"unknown capability: {capability}", kind="unknown_capability")
+
+    def _launch(self, capability: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Hand a file or URL to the OS. No shell string is ever assembled here."""
+        if capability == "open_url":
+            target = str(args.get("url", ""))
+            if not target.startswith(("http://", "https://")):
+                raise BodyError("open_url only accepts http(s) URLs", kind="invalid_argument")
+        else:
+            target = str(args.get("path", ""))
+            if not target or not Path(target).expanduser().exists():
+                raise BodyError(f"no such file: {target}", kind="missing_source")
+        launcher = launcher_for(sys.platform)
+        if shutil.which(launcher[0]) is None:
+            raise BodyError(f"this machine has no '{launcher[0]}' to launch with",
+                            kind="missing_capability")
+        try:
+            result = subprocess.run([*launcher, target], cwd=self.cwd,  # noqa: S603 — opt-in body
+                                    capture_output=True, text=True, timeout=int(args.get("timeout", 30)))
+        except subprocess.TimeoutExpired as exc:
+            raise BodyError(f"launch timed out: {exc}", kind="timeout") from exc
+        return {"outcome": "success" if result.returncode == 0 else "failed",
+                "returncode": result.returncode, "launcher": " ".join(launcher),
+                "target": target, "stderr": result.stderr[-500:]}
 
 
 # --------------------------------------------------------------------------

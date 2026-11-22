@@ -19,7 +19,9 @@ perform_goal, an allow rule, or a permission answer — the four states of §5.
 
 from __future__ import annotations
 
+import os
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -32,6 +34,8 @@ from .body import AuthorityGate, BodyError, SandboxBody, parse_authority_stateme
 from .calibration import Calibrator
 from .cognition import Curiosity, Devil, stakes_of
 from .explain import ExplanationService
+from .gate import DecisionGate, Intent, RouteLedger, classify_intent
+from .index import FileIndex
 
 from .intention import IntentionKeeper, parse as parse_intention
 from .learning import DemonstrationLearner, DemoAction, SkillProposal
@@ -181,6 +185,28 @@ class Reply:
         }
 
 
+#: how long a whole-machine index stays trusted before it is refreshed (§D6)
+INDEX_REFRESH_SECONDS = 60.0
+
+#: the intents the task branch handles. install/uninstall/learn are recognised by
+#: classify_intent but need OS adapters (§D2/§D5, phase P3) — until those exist the
+#: gate reports the missing capability rather than pretending.
+_TASK_ACTIONS = frozenset({"play", "find", "open", "where"})
+
+
+def index_roots(state_dir: Path) -> list[str]:
+    """What the whole-machine index covers (§D6).
+
+    ``BEANIE_INDEX_ROOTS`` is a path-separator-separated list of the owner's real
+    roots (on Windows: ``C:\\;D:\\``). Without it the index covers only the sandbox
+    this mind can see — and every reply says so, because a search that silently
+    covered less than the whole PC would be the exact dishonesty §D6 exists to avoid.
+    """
+    configured = os.environ.get("BEANIE_INDEX_ROOTS", "")
+    roots = [part for part in (piece.strip() for piece in configured.split(os.pathsep)) if part]
+    return roots or [str(Path(state_dir) / "sandbox")]
+
+
 class Mind:
     """One continuous mind: loop, stores, behaviors, body, persistence."""
 
@@ -227,6 +253,16 @@ class Mind:
         self.policy = EffortPolicy(self.memory)
         self.last_observed_reminders: list[str] = []
 
+        # §D6 whole-machine index + §D9 decision gate. The gate reads the body's
+        # *probed* capabilities each time it decides, so it can never propose a route
+        # this machine cannot take.
+        self.index = FileIndex(roots=index_roots(self.state_dir))
+        self.decision_gate = DecisionGate(
+            lambda: self.body.capabilities,
+            ledger=RouteLedger(self.state_dir / "route_ledger.jsonl"),
+        )
+        self._index_scanned_at = 0.0
+
         self.reflect_every = reflect_every
         self._last_turn_record: Optional[str] = None
         self._last_episode_turn = ""
@@ -248,6 +284,10 @@ class Mind:
         """
         turn_id = self._new_turn_id()
         text = user_text.strip()
+        # Every turn records what was perceived, whichever organ ends up answering.
+        # This used to happen only on the model-tier path, so a deterministic turn's
+        # explanation could never cite the question it was answering (§9.9).
+        self.trace.append(turn_id, "perception", {"user_text": text[:200]})
         self._organ_hint = None  # each routing branch declares itself as it runs
         self._last_episode_turn = ""  # which turn last created an episode
         self._previous_turn_id = self._current_turn_id
@@ -406,8 +446,237 @@ class Mind:
             self._organ_hint = "the usefulness tracker (§8) — your explicit rating was applied"
             return self._rate_last(turn_id, text, rating)
 
-        # 14) default cognition path (§4.1)
+        # 14) a task on this machine: play/open/find/where (§D4 + §D6 + §D9)
+        intent = classify_intent(text)
+        if intent is not None and intent.action in _TASK_ACTIONS:
+            handled = self._route_task(turn_id, text, intent)
+            if handled is not None:
+                return handled
+
+        # 15) default cognition path (§4.1)
         return self._default_turn(turn_id, text)
+
+    # ======================================================================
+    # Tasks on this machine (§D4 ambiguous requests, §D6 index, §D9 gate)
+    # ======================================================================
+
+    def refresh_index(self) -> int:
+        """Re-walk the configured roots, incrementally (§D6: seconds, not minutes)."""
+        now = time.time()
+        if self._index_scanned_at and now - self._index_scanned_at < INDEX_REFRESH_SECONDS:
+            return len(self.index)
+        self.index.scan(incremental=True)
+        self._index_scanned_at = time.time()
+        return len(self.index)
+
+    def _route_task(self, turn_id: str, text: str, intent: Intent) -> Optional[Reply]:
+        """Resolve an ambiguous request the way a person would: work out what was
+        meant, look everywhere, use what is here, and fall back to the web when it
+        is not (§D4) — with the choice and its alternatives on the record (§D9).
+        """
+        indexed = self.refresh_index()
+        # two searches, because "play me invoice" has two true answers: nothing
+        # *playable* matches, but a PDF does. Hiding the second behind the kind
+        # filter would send the owner to YouTube for a file they already have.
+        wanted = self.index.search(intent.object_phrase, kinds=intent.kinds, limit=5)
+        everything = wanted if not intent.kinds else self.index.search(intent.object_phrase, limit=3)
+        hits = wanted
+        top = hits[0] if hits else (everything[0] if everything else None)
+
+        # A near-tie is broken by a *declared* ladder, not by list order: the kind the
+        # verb implies ("watch" → video), then the shallowest path, then the most recently
+        # modified — because that is where a person would have put the file. Only when two
+        # candidates are identical on all of it does the mind ask instead of guessing.
+        ambiguous = False
+        tie_note = ""
+        if len(hits) > 1 and abs(hits[0].score - hits[1].score) < 0.02:
+            preferred = [h for h in hits if h.kind == intent.preferred_kind] if intent.preferred_kind else []
+            pool = preferred or hits
+            if len(pool) == 1:
+                top, hits = pool[0], pool
+                tie_note = f"{len(hits)} candidates scored within 0.02; '{intent.preferred_kind}' is the kind this request implies"
+            elif len(pool) > 1 and abs(pool[0].score - pool[1].score) >= 0.02:
+                top, hits = pool[0], pool
+            else:
+                ordered = sorted(pool, key=lambda h: (h.record.depth, -h.record.mtime, h.record.path))
+                first, second = ordered[0], ordered[1]
+                if (first.record.depth, first.record.mtime) != (second.record.depth, second.record.mtime):
+                    top, hits = ordered[0], ordered
+                    reason = ("it sits in a shallower folder" if first.record.depth < second.record.depth
+                              else "it was modified more recently")
+                    tie_note = (f"{len(pool)} candidates scored within 0.02 of each other; "
+                                f"took '{first.record.name}' because {reason}")
+                else:
+                    ambiguous = True
+
+        facts: dict[str, Any] = {
+            "searched": True,
+            "action": intent.action,
+            "local_hits": len(hits),
+            "ambiguous": ambiguous,
+            "indexed_files": indexed,
+            "top_score": round(top.score, 4) if top is not None else 0.0,
+            # a document is not a song: whether the best hit can actually be played
+            # decides between playing it, opening it, and saying what it really is
+            "playable_hit": bool(hits) and hits[0].kind in ("audio", "video"),
+            "kind_mismatch": bool(not hits and everything),
+            "tie_note": tie_note,
+            "roots": ",".join(self.index.roots),
+        }
+        decision = self.decision_gate.decide(
+            goal=f"{intent.action} '{intent.object_phrase}'", facts=facts, intent=intent)
+        chosen = decision.chosen
+        route_id = chosen.id if chosen is not None else ""
+
+        # A *question* the index cannot answer is not a task failure. Handing it to the
+        # fallback route would replace the world model's and the model tier's honest
+        # answers with a canned "I can't do that", so those intents fall through instead.
+        # Acts (play/open) keep the gap reply: silence there would look like success.
+        if chosen is not None and chosen.approach.fallback and intent.action in ("where", "find"):
+            return None
+
+        result: dict[str, Any] = {}
+        residual = ""
+        if route_id in ("local_play", "local_open") and top is not None:
+            capability = "play_media" if route_id == "local_play" else "open_path"
+            result = self._gated_run(turn_id, capability, {"path": top.record.path})
+        elif route_id == "web_play":
+            url = ("https://www.youtube.com/results?search_query="
+                   + intent.object_phrase.replace(" ", "+"))
+            result = self._gated_run(turn_id, "open_url", {"url": url})
+        elif route_id in ("ask_which", "report_found", "clarify_kind"):
+            result = {"outcome": "success", "mode": "question" if route_id == "ask_which" else "answer"}
+        else:
+            result = {"outcome": "blocked", "mode": "gap"}
+
+        success = result.get("outcome") == "success"
+        reply_text = self._task_reply(intent, decision, top, hits, result, indexed)
+        if not success and route_id:
+            residual = f"the '{route_id}' route did not complete ({result.get('mode', '?')})"
+        if result.get("mode") == "simulated":
+            residual = (residual + "; " if residual else "") + (
+                "this body has no real player/browser, so the launch was recorded, not performed")
+
+        episode = self._record_episode(
+            turn_id, reply_text, 0.9 if success else 0.5, success, None,
+            extra={"user_text": text, "directive": f"task:{intent.action}",
+                   "target": intent.object_phrase, "route": route_id, "reply": reply_text},
+        )
+        self.trace.append(turn_id, "decision", {
+            **decision.to_trace_payload(),
+            "candidate": "",
+            "reply": reply_text[:200],
+            "label": "task",
+            "depth": "deterministic",
+            "escalated_from": None,
+            "handler": f"the decision gate (§D9) — chose the '{route_id}' route",
+            "concerns": [],
+            "residual": residual,
+            "calibration": {},
+        })
+        self.trace.append(turn_id, "outcome", {
+            "record_id": episode.id, "success": success, "route": route_id,
+            "mode": str(result.get("mode", "")),
+            "target": top.record.path if top is not None and route_id.startswith("local")
+                      else str(result.get("url", "")),
+        })
+        if route_id:
+            self.decision_gate.ledger.record(route_id, success, note=intent.object_phrase[:60])
+        self._organ_hint = (f"the decision gate (§D9) — chose '{route_id}' from "
+                            f"{len(decision.eligible)} eligible route(s) over an index of {indexed} file(s)")
+        return Reply(text=reply_text, confidence=0.9 if success else 0.5,
+                     confidence_label=confidence_label(0.9 if success else 0.5),
+                     turn_id=turn_id, success=success, record_id=episode.id)
+
+    def _gated_run(self, turn_id: str, capability: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Run one body capability *through* the authority gate (§D8/§5).
+
+        No module reaches the machine directly: the gate decides act / ask / refuse, its
+        verdict is recorded in the shapes the explanation service already renders, and a
+        refusal is reported as a refusal instead of being dressed up as a result.
+        """
+        permission = self.gate.check(capability)
+        if permission.state == "act":
+            self.trace.append(turn_id, "authority", {"capability": capability, "action": "allow"})
+            try:
+                return self.body.run(capability, args)
+            except BodyError as error:
+                return {"outcome": "failed", "mode": "error", "error": str(error)}
+        if permission.state == "not_allowed":
+            self.trace.append(turn_id, "authority", {"blocked": capability})
+        else:
+            self.trace.append(turn_id, "authority", {"permission_request": capability, "count": 1})
+        return {"outcome": "blocked", "mode": "permission", "state": permission.state,
+                "capability": capability, "reason": permission.reason or permission.phrase}
+
+    def _task_reply(self, intent: Intent, decision: "Any", top: Optional["Any"],
+                    hits: list, result: dict[str, Any], indexed: int) -> str:
+        """Human-shaped wording (§D3): say what was done, where it came from, and
+        what is still uncertain — never a log dump."""
+        route_id = decision.chosen.id if decision.chosen is not None else ""
+        scope = "the folders I can see" if len(self.index.roots) == 1 and \
+            self.index.roots[0].endswith("sandbox") else f"{len(self.index.roots)} indexed root(s)"
+
+        # These come first, before any route-specific wording: a launch that was refused
+        # or that errored must never be described as though it happened. Getting this
+        # order wrong is how a system ends up claiming actions it did not take.
+        if result.get("mode") == "permission":
+            capability = result.get("capability", "that")
+            return (f"I know how to do it — the route is '{route_id}' — but '{capability}' needs your "
+                    f"permission first ({result.get('reason', 'the authority policy is to ask')}). "
+                    f"Nothing was launched. Allow it once and I'll keep the rule instead of asking again.")
+        if result.get("outcome") == "failed":
+            return (f"I tried the '{route_id}' route and it failed: "
+                    f"{result.get('error', result.get('mode', 'unknown reason'))}. Nothing was played or opened.")
+
+        if route_id == "ask_which" and len(hits) > 1:
+            options = "\n".join(f"  - {h.record.name} ({h.record.kind}, match {h.score})" for h in hits[:3])
+            return (f"I found more than one good candidate for '{intent.object_phrase}' and they score "
+                    f"the same, so picking one would be a guess:\n{options}\nWhich do you want?")
+        if route_id == "report_found" and top is not None:
+            why = top.why[0] if top.why else "the name matched"
+            others = f" ({len(hits) - 1} other candidate(s) scored lower)" if len(hits) > 1 else ""
+            return (f"Found '{intent.object_phrase}': {top.record.path} ({top.record.kind}, "
+                    f"match {top.score}){others}. I searched {scope} — {indexed:,} file(s) indexed. "
+                    f"Why this one: {why}. Want me to open it?")
+        if route_id == "clarify_kind" and top is not None:
+            wanted = " or ".join(intent.kinds) if intent.kinds else "playable media"
+            article = "an" if top.record.kind[:1] in "aeiou" else "a"
+            return (f"The closest match to '{intent.object_phrase}' is '{top.record.name}' "
+                    f"({top.record.path}), but that is {article} {top.record.kind} and you asked for "
+                    f"{wanted}. I can open what I found, or look for {wanted} of "
+                    f"'{intent.object_phrase}' on the web instead. Which do you want?")
+        if route_id in ("local_play", "local_open") and top is not None:
+            verb = "Playing" if route_id == "local_play" else "Opening"
+            tie_note = str(decision.facts.get("tie_note") or "")
+            # "clear best match" is a claim; it is only made when nothing tied with it
+            qualifier = "the best match" if tie_note else "the clear best match"
+            line = (f"{verb} '{top.record.name}' ({top.record.kind}) — found in {scope} "
+                    f"({indexed:,} file(s) indexed) as {qualifier} at {top.score}.")
+            why = top.why[0] if top.why else "the name matched"
+            line += f" Why this one: {why}."
+            if tie_note:
+                line += f" ({tie_note}.)"
+            if result.get("mode") == "simulated":
+                line += " This sandbox body has no real player, so that launch is recorded, not performed."
+            return line
+        if route_id == "web_play":
+            url = result.get("url", "")
+            line = (f"'{intent.object_phrase}' is not on this PC — I searched {scope} "
+                    f"({indexed:,} file(s)) and nothing matched well enough, so I'm playing it "
+                    f"from YouTube instead.")
+            if url:
+                line += f" Opening {url}"
+            if result.get("mode") == "simulated":
+                line = line.rstrip(".") + " — recorded, not opened, because this body has no network."
+            return line
+        # report_gap / anything blocked: name what is missing, never fake success
+        missing = sorted({cap for route in decision.routes for cap in route.missing})
+        if missing:
+            return (f"I can't carry that out on this machine yet: it needs "
+                    f"{', '.join(missing)}, which this body does not have. "
+                    f"Say the word and I'll tell you what would provide it.")
+        return f"I worked out you meant {intent.action} '{intent.object_phrase}', but no route was available."
 
     def _introspect(self, turn_id: str, text: str) -> Reply:
         """The self-model speaks: gaps, lessons, capabilities, identity.
@@ -1324,7 +1593,6 @@ class Mind:
 
     def _default_turn(self, turn_id: str, text: str) -> Reply:
         context = self.recall(text, limit=8)
-        self.trace.append(turn_id, "perception", {"user_text": text[:200]})
 
         # effort allocation (§4.6): choose a processing depth first
         planned_depth = self._effort_depth(text)

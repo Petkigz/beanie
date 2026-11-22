@@ -14,6 +14,7 @@ behavior, and identity grow out of its own experience and history.
 | [VISION.md](./VISION.md) | The concept, the general-intelligence filter, the test battery (T1–T13) |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | The mind diagram turned into buildable layers + implementation status (§10) |
 | [CAPABILITY_REGISTER.md](./CAPABILITY_REGISTER.md) | The running audit: every capability scored 0–3, with the mechanism scorecard |
+| [OWNER_DIRECTIVES.md](./OWNER_DIRECTIVES.md) | The owner's post-lock requirements (§D1–§D9): LM Studio, OS control on every platform, voice UI, Everything-grade search, learning from video, and the decision gate |
 | [REMAINING.md](./REMAINING.md) | What is left, and exactly what opens each remaining gate (the model tier, calendar time) |
 
 ## How the code is kept from drifting away from the vision
@@ -56,6 +57,10 @@ src/beanie/
   intention.py    prospective memory: turn-count, wall-clock + conditional "when X appears" (§3.7)
   reflection.py   lessons, identity summaries, consolidation-adapter seam (§4.3/Stage 5)
   mind.py         self-model introspection (row 35), low-confidence caveats (Q13), usefulness ratings + knowledge export/import (T13/Q15)
+  index.py        whole-machine file index (§D6): incremental scan + typo/abbreviation/
+                  artist-title tolerant matching; every hit says why it matched
+  gate.py         the decision gate (§D9): enumerate → filter by probed capabilities →
+                  score by fit/cost/risk/what-worked-before → choose, with alternatives
   explain.py      provenance-first explanation service: every sentence is a claim with
                   its citation, rendered from it (§4.5/T10)
   faithfulness.py the §9.9 audit protocol: re-resolves every citation in every
@@ -69,17 +74,17 @@ src/beanie/
   substrate_http.py  OpenAI-compatible real model tier (§2): honest failure mapping,
                   candidate passed to the deep tier; exercised against a local mock
   mind.py         the integrated cognitive loop — step/tick/observe/demonstrate (§4.1)
-  measure.py      longitudinal suite runner: 24 tasks, action turns, register + score
+  measure.py      longitudinal suite runner: 25 tasks, action turns, register + score
                   snapshots, trailing-window report (suite delta, register + level movement,
                   stagnation prompt, calibration, usefulness)
   cli.py          REPL window into the mind; `tick [N]` idle budget, --check-model pings
                   the configured model tier, --audit-explanations runs the §9.9
                   faithfulness audit over every recorded decision
 Makefile          setup/test/demo/suite/verify/repl targets (venv auto-recreation)
-suites/           24 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
+suites/           25 longitudinal tasks (§8 protocol target 20–30): beliefs, directives, preferences,
                   learning/transfer, world model, prospective memory, introspection, authority
                   (gating + growing autonomy), owner tone, policy, idle curiosity, consistency…
-tests/            164 tests incl. the conformance drift guard + T-test battery
+tests/            196 tests incl. the conformance drift guard + T-test battery
 ```
 
 ## Connecting a real model tier (BEANIE_MODEL_URL)

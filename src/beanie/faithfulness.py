@@ -86,17 +86,6 @@ def resolve_ref(ref: str, *, trace: Trace, memory: Memory) -> Optional[dict[str,
                 return {"user_text": str(event.payload["user_text"])}
         return None
 
-    if "[" in rest and rest.endswith("]"):
-        kind, _, raw = rest.partition("[")
-        try:
-            index = int(raw[:-1])
-        except ValueError:
-            return None
-        events = [e for e in trace.events_for(turn_id) if e.kind == kind]
-        if not (0 <= index < len(events)):
-            return None
-        return dict(events[index].payload)
-
     if rest == "decision" or rest.startswith("decision."):
         decision = _turn_decision(trace, turn_id)
         if decision is None:
@@ -112,6 +101,14 @@ def resolve_ref(ref: str, *, trace: Trace, memory: Memory) -> Optional[dict[str,
             except ValueError:
                 return None
             tail = key
+        if index is None and "." in tail:
+            head, _, rest_of_path = tail.partition(".")
+            value = decision.payload.get(head)
+            for part in rest_of_path.split("."):
+                if not isinstance(value, dict) or part not in value:
+                    return None
+                value = value[part]
+            return {rest_of_path.rsplit(".", 1)[-1]: value}
         value = decision.payload.get(tail)
         if index is not None:
             if not isinstance(value, list) or not (0 <= index < len(value)):
@@ -125,6 +122,18 @@ def resolve_ref(ref: str, *, trace: Trace, memory: Memory) -> Optional[dict[str,
         if tail == "reply":
             value = reply_snippet(value)
         return {tail: value}
+
+    if "[" in rest and rest.endswith("]"):
+        kind, _, raw = rest.partition("[")
+        try:
+            index = int(raw[:-1])
+        except ValueError:
+            return None
+        events = [e for e in trace.events_for(turn_id) if e.kind == kind]
+        if not (0 <= index < len(events)):
+            return None
+        return dict(events[index].payload)
+
     return None
 
 
@@ -146,6 +155,16 @@ def material_refs(trace: Trace, memory: Memory, turn_id: str) -> dict[str, str]:
         required[f"turn:{turn_id}:decision.depth"] = "which tier answered"
     if decision.payload.get("escalated_from"):
         required[f"turn:{turn_id}:decision.escalated_from"] = "why effort was raised"
+    routes = decision.payload.get("routes") or []
+    if routes:
+        chosen = decision.payload.get("chosen")
+        position = next((i for i, r in enumerate(routes) if r.get("id") == chosen), None)
+        if position is not None:
+            required[f"turn:{turn_id}:decision.routes[{position}]"] = (
+                "the route it chose, out of the alternatives it scored")
+        intent = decision.payload.get("intent") or {}
+        if intent.get("action"):
+            required[f"turn:{turn_id}:decision.intent.action"] = "how the request was read"
     for index, concern in enumerate(decision.payload.get("concerns") or []):
         if concern.get("kind") != "none":
             required[f"turn:{turn_id}:decision.concerns[{index}]"] = "a concern raised before answering"
